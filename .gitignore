@@ -1,0 +1,19 @@
+# Build output
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+
+# Signing keys never go into the repository
+*.keystore
+*.jks
+
+# Editors and OS
+.idea/
+*.iml
+.DS_Store
+
+# Local notes and agent settings
+.claude/
+headunit/

@@ -1,0 +1,3302 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Dashphonic</title>
+  <!-- В машине нет гарантированного интернета: стили и шрифты лежат в assets, CDN не используется -->
+  <link href="panel.css" rel="stylesheet">
+  <link href="typefaces.css" rel="stylesheet">
+  <script src="panel-logic.js"></script>
+  <script>
+    // FytBridge внедряется до загрузки страницы, так что по нему видно, что мы внутри APK, а не в превью
+    if (window.FytBridge) document.documentElement.classList.add("in-app");
+    const mainFonts = ["Inter", "Manrope", "Onest", "Geologica", "Exo 2", "Golos Text", "Rubik"];
+    const monoFonts = ["JetBrains Mono", "IBM Plex Mono", "Roboto Mono"];
+    function savedFont(key, options) {
+      try { const value = localStorage.getItem(key); return options.includes(value) ? value : options[0]; }
+      catch (e) { return options[0]; }
+    }
+    let mainFont = savedFont("mainFont", mainFonts);
+    let monoFont = savedFont("monoFont", monoFonts);
+    document.documentElement.style.setProperty("--font-main", `"${mainFont}"`);
+    document.documentElement.style.setProperty("--font-mono", `"${monoFont}"`);
+  </script>
+  <style>
+    :root {
+      --bg-base: #070709;
+      --bg-surface: rgba(255, 255, 255, 0.06);
+      --bg-surface-hover: rgba(255, 255, 255, 0.11);
+      --bg-vol-track: rgba(255, 255, 255, 0.05);
+      --bg-vol-fill: rgba(255, 255, 255, 0.13);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.58);
+      --text-muted: rgba(255, 255, 255, 0.36);
+      --play-bg: #ffffff;
+      --play-fg: #09090b;
+      --track-bg: rgba(255, 255, 255, 0.12);
+      --track-fill: #ffffff;
+      --ambient-color: 99, 102, 241;
+      --ambient-opacity: 0.22;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        --bg-base: #f4f4f7;
+        --bg-surface: rgba(0, 0, 0, 0.05);
+        --bg-surface-hover: rgba(0, 0, 0, 0.09);
+        --bg-vol-track: rgba(0, 0, 0, 0.05);
+        --bg-vol-fill: rgba(0, 0, 0, 0.11);
+        --border-subtle: rgba(0, 0, 0, 0.07);
+        --text-primary: #09090b;
+        --text-secondary: rgba(9, 9, 11, 0.60);
+        --text-muted: rgba(9, 9, 11, 0.38);
+        --play-bg: #09090b;
+        --play-fg: #ffffff;
+        --track-bg: rgba(9, 9, 11, 0.12);
+        --track-fill: #09090b;
+        --ambient-opacity: 0.14;
+      }
+    }
+
+    :root[data-theme="light"] {
+      --bg-base: #f4f4f7;
+      --bg-surface: rgba(0, 0, 0, 0.05);
+      --bg-surface-hover: rgba(0, 0, 0, 0.09);
+      --bg-vol-track: rgba(0, 0, 0, 0.05);
+      --bg-vol-fill: rgba(0, 0, 0, 0.11);
+      --border-subtle: rgba(0, 0, 0, 0.07);
+      --text-primary: #09090b;
+      --text-secondary: rgba(9, 9, 11, 0.60);
+      --text-muted: rgba(9, 9, 11, 0.38);
+      --play-bg: #09090b;
+      --play-fg: #ffffff;
+      --track-bg: rgba(9, 9, 11, 0.12);
+      --track-fill: #09090b;
+      --ambient-opacity: 0.14;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-main, "Inter"), sans-serif;
+      overflow-x: hidden;
+      overscroll-behavior: none;
+      transition: background-color 0.35s ease, color 0.35s ease;
+    }
+
+    .tabular-clock {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1, "zero" 1;
+    }
+
+    .mono-num {
+      font-family: var(--font-mono, "JetBrains Mono"), monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .app-panel {
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      transition: background-color 0.4s ease;
+    }
+
+    /* Градиент сам не анимируется: плавно меняем зарегистрированные компоненты цвета, на которых он построен */
+    @property --amb-r { syntax: "<number>"; inherits: true; initial-value: 99; }
+    @property --amb-g { syntax: "<number>"; inherits: true; initial-value: 102; }
+    @property --amb-b { syntax: "<number>"; inherits: true; initial-value: 241; }
+    :root { transition: --amb-r 0.8s ease, --amb-g 0.8s ease, --amb-b 0.8s ease; }
+
+    .ambient-wash {
+      background: radial-gradient(
+        circle at 50% 42%,
+        rgba(var(--amb-r), var(--amb-g), var(--amb-b), var(--ambient-opacity)) 0%,
+        rgba(var(--amb-r), var(--amb-g), var(--amb-b), 0) 75%
+      );
+    }
+
+    /* Значение, которое давно не обновлялось: видно, что оно последнее известное, а не текущее */
+    .stale-value { opacity: 0.4; }
+    #carVoltage, .battery, #outTemp { transition: opacity 0.3s ease; }
+
+    /* Появление и исчезновение без смены раскладки: место под элемент остаётся */
+    .reserve { transition: opacity 0.25s ease, visibility 0.25s; }
+    .reserve.off { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    #trackArtist { min-height: 28px; }
+
+    .track-text { transition: opacity 0.16s ease, transform 0.16s ease; }
+    .track-text.swapping { opacity: 0; transform: translateY(4px); }
+
+    .fade-in { animation: fade-in 0.25s ease; }
+    @keyframes fade-in { from { opacity: 0; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      :root { transition: none; }
+      .track-text, .reserve, #carVoltage, .battery { transition: none; }
+      .fade-in { animation: none; }
+      .bt-sheet, #hudVolumeBar { transition: none; }
+    }
+
+    .surface-btn {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      transition: transform 0.14s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
+    }
+    .surface-btn:hover {
+      background-color: var(--bg-surface-hover);
+    }
+    .surface-btn:active {
+      transform: scale(0.96);
+    }
+
+    .primary-play-btn {
+      background-color: var(--play-bg);
+      color: var(--play-fg);
+      transition: transform 0.14s cubic-bezier(0.2, 0, 0, 1), opacity 0.15s ease;
+    }
+    .primary-play-btn:active {
+      transform: scale(0.96);
+    }
+
+    /* Tactile Bottom Volume Slide Dock */
+    .volume-dock {
+      background-color: var(--bg-vol-track);
+      border: 1px solid var(--border-subtle);
+      position: relative;
+      overflow: hidden;
+      cursor: ew-resize;
+      transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1), border-color 0.2s ease;
+    }
+    .volume-dock.dragging {
+      transform: scale(0.99);
+    }
+    /* без этого WebView отдаёт чуть косой свайп прокрутке и обрывает жест через pointercancel */
+    .volume-slot { position: relative; height: 48px; touch-action: none; transition: height .5s cubic-bezier(.2,.8,.2,1); }
+    .volume-slot .volume-dock { position: absolute; left: 0; right: 0; top: 0; bottom: 0; height: auto; transition: border-radius .5s ease, background-color .5s ease, border-color .5s ease, transform .15s cubic-bezier(.2,0,0,1); }
+    .volume-slot .volume-dock > .relative, .volume-slot #volValueLabel { transition: opacity .3s ease; }
+    /* с обложкой полоса тонкая и почти не занимает высоты; зона касания шире за счёт отступов вокруг */
+    .media-expanded .volume-slot { height: 6px; z-index: 20; }
+    .media-expanded .volume-slot::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; bottom: -18px; }
+    .media-expanded .volume-slot .volume-dock {
+      position: absolute; left: 0; right: 0; top: 0; bottom: 0; height: auto; border-radius: 3px;
+      transition: top .26s ease, bottom .26s ease, border-radius .5s ease, background-color .5s ease, border-color .5s ease, transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+    }
+    .media-expanded .volume-slot .volume-dock { background-color: var(--track-bg); border-color: transparent; }
+    .media-expanded .volume-slot .volume-dock-fill { background-color: var(--text-muted); transition: width 0.08s ease-out, background-color .26s ease; }
+    .media-expanded .volume-slot .volume-dock > .relative, .media-expanded .volume-slot #volValueLabel { opacity: 0; transition: opacity .15s ease; }
+    /* раскрытая полоса та же тонкая, только выше: цвета не меняются, раскладка под ней не двигается */
+    .media-expanded .volume-slot.awake .volume-dock { top: -11px; bottom: -11px; border-radius: 14px; transition: top .3s cubic-bezier(.2,.8,.2,1), bottom .3s cubic-bezier(.2,.8,.2,1), border-radius .3s ease, transform 0.15s cubic-bezier(0.2, 0, 0, 1); }
+    .media-expanded .volume-slot.awake .volume-dock > .relative, .media-expanded .volume-slot.awake #volValueLabel { opacity: 1; transition-delay: .08s; }
+    .media-expanded .volume-slot.awake .volume-dock > .relative svg, .media-expanded .volume-slot.awake #volValueLabel { color: var(--text-primary); }
+    .volume-dock-fill {
+      background-color: var(--bg-vol-fill);
+      transition: width 0.08s ease-out;
+    }
+
+    .text-sec { color: var(--text-secondary); }
+    .text-mut { color: var(--text-muted); }
+    .progress-track { background-color: var(--track-bg); }
+    .progress-fill { background-color: var(--track-fill); }
+
+    /* Прогресс через transform: раз в секунду без пересчёта раскладки */
+    .progress-bar {
+      width: 100%;
+      transform-origin: left center;
+      transform: scaleX(0);
+      transition: none;
+    }
+
+    /* Дата в одну строку: если места мало, JS сокращает день недели, а ellipsis — последний рубеж */
+    .date-line {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--text-secondary);
+    }
+
+    /* часы не должны упираться в край в узком split-screen */
+    #clockHoursMins { font-size: var(--clock-size, min(88px, 23vw)) !important; transition: font-size .5s cubic-bezier(.2,.8,.2,1); }
+
+    .status-chip {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .status-chip .hidden { display: none; }
+    .settings-btn { width: 44px; height: 44px; display: grid; place-items: center; color: var(--text-secondary); }
+    .settings-btn:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+
+    /* Батарея как в iOS: число внутри корпуса. Над заливкой лежит копия числа цветом фона, обрезанная по ширине заливки */
+    .battery {
+      --cell-w: 26px;
+      position: relative;
+      width: calc(var(--cell-w) + 4px);
+      height: 14px;
+      padding: 2px;
+      border-radius: 4.5px;
+      box-shadow: inset 0 0 0 1px var(--text-muted);
+      margin-right: 3px;
+      color: var(--text-primary);
+    }
+    .battery::after {
+      content: "";
+      position: absolute;
+      right: -3px;
+      top: 4.5px;
+      width: 2px;
+      height: 5px;
+      border-radius: 0 1.5px 1.5px 0;
+      background: var(--text-muted);
+    }
+    .battery-cell {
+      position: relative;
+      width: var(--cell-w);
+      height: 100%;
+      border-radius: 2.5px;
+      overflow: hidden;
+    }
+    .battery-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      overflow: hidden;
+      background: var(--text-primary);
+      transition: width 0.4s ease;
+    }
+    .battery-num {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: var(--cell-w);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .battery-fill .battery-num { color: var(--bg-base); }
+    .battery.low .battery-fill { background: #ef4444; }
+    .battery.low .battery-fill .battery-num { color: #ffffff; }
+
+    #carVoltage.warn { color: #ef4444; font-weight: 700; }
+    button { cursor: pointer; }
+    button:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+    /* Вольтаж открывает график: зона нажатия больше самой надписи, раскладку строки не меняет */
+    .volt-btn {
+      padding: 14px 8px;
+      margin: -14px -8px;
+      border-radius: 10px;
+      font: inherit;
+      color: inherit;
+      transition: background-color 0.15s ease, opacity 0.3s ease;
+    }
+    .volt-btn:active { background: var(--bg-surface); }
+
+    /* Температура живёт на базовой линии часов: читается вторым взглядом, не спорит с временем */
+    .clock-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .out-temp {
+      flex-shrink: 0;
+      font-size: min(34px, 9vw);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      transition: opacity 0.3s ease;
+    }
+
+    #voltSheet { overflow-y: auto; touch-action: pan-y; }
+    .volt-now { display: flex; align-items: baseline; gap: 12px; margin-top: 16px; }
+    .volt-now-num { font-size: 40px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+    .volt-now-num.warn { color: #ef4444; }
+    .volt-state { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
+    .volt-chart { margin: 20px 0 0; }
+    .volt-chart svg { display: block; width: 100%; height: 168px; overflow: visible; }
+    .volt-axis {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .volt-empty { margin: 20px 0 0; font-size: 14px; line-height: 1.45; color: var(--text-secondary); }
+    .volt-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 24px 0 0;
+    }
+    .volt-stats dt { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .volt-stats dd { margin: 4px 0 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .volt-stats dd.warn { color: #ef4444; }
+    .volt-note { margin: 16px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+    .volt-alert {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 13px;
+      font-weight: 600;
+      color: #ef4444;
+    }
+
+    /* Звучит не BT: трек на экране устарел, приглушаем его, чтобы не путать с тем, что играет */
+    .track-block { transition: opacity 0.3s ease; }
+    .track-block.stale { opacity: 0.4; }
+    .source-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    /* Второстепенная кнопка: главным на экране остаётся Play */
+    .pill-btn {
+      flex-shrink: 0;
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      transition: transform 0.14s cubic-bezier(0.2, 0, 0, 1);
+    }
+    .volt-num { font-variant-numeric: tabular-nums; }
+    /* о новой версии сообщаем один раз и ненадолго: шапку и плеер ничто не сдвигает */
+    .update-toast { position: absolute; left: 16px; right: 16px; top: 16px; z-index: 40; display: flex; align-items: center; border-radius: 18px; background: linear-gradient(var(--bg-surface), var(--bg-surface)), var(--bg-base); border: 1px solid var(--border-subtle); box-shadow: 0 12px 32px rgba(0,0,0,.28); opacity: 0; transform: translateY(-16px); pointer-events: none; transition: opacity .25s ease, transform .35s cubic-bezier(.2,.8,.2,1); }
+    .update-toast.show { opacity: 1; transform: none; pointer-events: auto; }
+    .update-toast-open { flex: 1; min-width: 0; min-height: 56px; padding: 8px 4px 8px 16px; display: flex; flex-direction: column; justify-content: center; text-align: left; }
+    .update-toast-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .update-toast-sub { font-size: 13px; color: var(--text-secondary); }
+    .update-toast-close { flex: none; width: 52px; align-self: stretch; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+    .app-version { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+    #btnUpdate[data-state="available"] > span:last-child { color: var(--text-primary); font-weight: 600; }
+    .bt-sheet .sheet-row h3 { margin: 0; }
+    .pill-btn:active { transform: scale(0.96); }
+    .pill-btn:disabled { opacity: 0.45; }
+
+    .device-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      height: 40px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .device-line span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .device-line.off { color: var(--text-muted); }
+
+    /* Лист Bluetooth поверх панели: в 30% split-screen модальному окну места нет */
+    .bt-sheet {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      padding: 24px max(24px, calc((100% - 520px) / 2));
+      background: var(--bg-base);
+      transform: translateY(16px);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1), opacity 0.18s ease;
+    }
+    .bt-sheet.open { transform: none; opacity: 1; pointer-events: auto; }
+    .onboarding { z-index: 45; }
+    .onboarding-top { display: flex; align-items: center; justify-content: space-between; min-height: 48px; margin-top: -12px; }
+    .onboarding-step { font-size: 13px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .onboarding-art { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; color: var(--text-primary); }
+    .onboarding-art svg { width: 132px; height: 132px; }
+    .onboarding-title { text-wrap: balance; margin: 0 0 10px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+    .onboarding-text { margin: 0 0 28px; min-height: 5.6em; font-size: 16px; line-height: 1.4; color: var(--text-secondary); }
+    .onboarding-next { width: 100%; height: 56px; flex-shrink: 0; font-size: 17px; font-weight: 600; }
+    /* Назад слева, как в системных экранах Android: иконка без подложки, зона нажатия 48 px */
+    .sheet-back {
+      width: 48px;
+      height: 48px;
+      margin-left: -12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      color: var(--text-primary);
+      transition: background-color 0.15s ease;
+    }
+    .sheet-back:active { background: var(--bg-surface); }
+    /* Действие раздела — текстом, как «Изменить» у заголовка списка: не спорит с пунктами списка */
+    .text-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 10px;
+      margin-right: -10px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .text-action:active { background: var(--bg-surface); }
+    .text-action .spinner {
+      display: none;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--track-bg);
+      border-top-color: var(--text-secondary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .text-action.busy .spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .bt-sheet h3 {
+      margin: 20px 0 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .bt-list { display: flex; flex-direction: column; overflow-x: hidden; }
+    .bt-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 52px;
+      padding: 0 2px;
+      border-bottom: 1px solid var(--border-subtle);
+      text-align: left;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .bt-connect { min-width: 0; flex: 1; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; }
+    .bt-item .name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .bt-rename { width: 44px; height: 48px; flex-shrink: 0; display: grid; place-items: center; color: var(--text-secondary); }
+    .bt-rename:focus-visible, .bt-connect:focus-visible { outline: 2px solid var(--text-primary); outline-offset: -2px; }
+    .rename-form { display: flex; flex-direction: column; gap: 14px; padding-top: 24px; }
+    .rename-label { color: var(--text-secondary); font-size: 13px; }
+    .rename-input { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-surface); color: var(--text-primary); user-select: text; }
+    .rename-save { min-height: 48px; padding: 0 16px; border-radius: 10px; background: var(--play-bg); color: var(--play-fg); font-weight: 600; }
+    .rename-note { font-size: 12px; line-height: 1.4; color: var(--text-secondary); }
+    .bt-item[data-swipe="rename"] { box-shadow: inset 4px 0 0 var(--text-secondary); }
+    .bt-item[data-swipe="remove"] { box-shadow: inset -4px 0 0 #ef4444; }
+    .bt-item .status { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); }
+    .bt-item .status.ok { color: #22c55e; }
+    .bt-item .status.err { color: #ef4444; }
+    /* Размытая обложка под всей панелью: цвет берётся из самой обложки, как в Apple Music */
+    .cover-wash { position: absolute; inset: -25%; background-position: center; background-size: cover; filter: blur(48px) saturate(1.4); opacity: 0; transition: opacity .8s ease; pointer-events: none; z-index: 0; }
+    .cover-wash.visible { opacity: .42; }
+
+    /* Обложка забирает всё свободное место над названием: с ней плеер уходит вниз, без неё возвращается в центр.
+       Размер растёт вместе с max-height, поэтому появление и исчезновение — одно плавное движение */
+    .media-expanded .panel-track { flex: 1 1 auto; min-height: 0; margin: 0 auto; width: 100%; padding-top: 14px; padding-bottom: 4px; }
+    .media-expanded #sourceRow.off { display: none; }
+    .media-expanded .track-block { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+    .cover-slot { flex: 1 1 0; min-height: 0; max-height: 0; margin-bottom: 0; container-type: size; display: flex; align-items: center; justify-content: center; opacity: 0; transform: scale(.92); transition: max-height .6s cubic-bezier(.2,.8,.2,1), margin .6s cubic-bezier(.2,.8,.2,1), opacity .45s ease, transform .6s cubic-bezier(.2,.8,.2,1); }
+    .cover-slot.visible { max-height: 520px; margin-bottom: 20px; opacity: 1; transform: none; }
+    .cover-button { position: relative; display: block; width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); overflow: hidden; padding: 0; border-radius: 12px; background: var(--bg-surface, #1c1c22); box-shadow: 0 18px 40px rgba(0,0,0,.34); }
+    /* С обложкой часы уходят в одну строку с датой: место отдаётся обложке, время остаётся читаемым */
+    .media-expanded .panel-top { display: flex; align-items: center; gap: 14px; }
+    .media-expanded .clock-row { order: -1; flex: none; gap: 10px; }
+    /* рядом с часами мало места: дата или предупреждение сверху, вольтаж и заряд под ними */
+    .media-expanded .panel-top > .flex { flex: 1 1 auto; min-width: 0; margin-bottom: 0; flex-wrap: wrap; row-gap: 2px; column-gap: 10px; }
+    .media-expanded #clockDateStr, .media-expanded #voltAlert { flex-basis: 100%; }
+    /* в узкой панели рядом с часами не остаётся места даже на дату: строка даты снова над часами */
+    @media (max-width: 340px) {
+      .media-expanded .panel-top { display: block; }
+      .media-expanded .panel-top > .flex { margin-bottom: 4px; }
+    }
+    .media-expanded #clockHoursMins { font-size: 46px !important; }
+    .media-expanded .out-temp { font-size: 20px; }
+    .cover-button img, .cover-mini img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .cover-mini { position: relative; }
+    .cover-button img.cover-fade, .cover-mini img.cover-fade { position: absolute; inset: 0; pointer-events: none; animation: cover-crossfade .8s ease forwards; }
+    .cover-wash.cover-fade { animation: wash-crossfade .8s ease forwards; }
+    .cover-wash.entering { animation: wash-enter .8s ease both; }
+    @keyframes cover-crossfade { to { opacity: 0; } }
+    @keyframes wash-crossfade { from { opacity: .42; } to { opacity: 0; } }
+    @keyframes wash-enter { from { opacity: 0; } to { opacity: .42; } }
+    .cover-button:focus-visible, .cover-mini:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
+    .media-expanded #trackTitle { font-size: 24px; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .media-expanded #trackArtist { margin-top: 2px; min-height: 0; font-size: 17px; }
+    .media-expanded #progressWrap { margin-top: 14px; }
+
+    /* Текст песни: обложка сворачивается в миниатюру рядом с названием, строки занимают её место */
+    .lyrics-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; min-width: 0; }
+    .cover-mini { width: 48px; height: 48px; flex-shrink: 0; overflow: hidden; padding: 0; border-radius: 8px; }
+    .lyrics-head-text { min-width: 0; }
+    .lyrics-head-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 17px; font-weight: 600; line-height: 1.25; }
+    .lyrics-head-artist { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--text-secondary); margin-top: 2px; }
+    .lyrics-view { flex: 1 1 0; min-height: 120px; overflow: hidden; mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); }
+    .lyrics-lines { padding-top: 8px; transition: transform .7s cubic-bezier(.22,.9,.24,1); }
+    .lyric-line { color: var(--text-primary); opacity: .26; font-size: 25px; line-height: 1.22; font-weight: 700; letter-spacing: -.012em; margin: 0 0 18px; transform: scale(.94); transform-origin: left center; transition: opacity .45s ease, transform .6s cubic-bezier(.22,.9,.24,1); overflow-wrap: anywhere; }
+    .lyric-line.past { opacity: .16; }
+    .lyric-line.active { opacity: 1; transform: none; }
+    .lyric-dots { display: flex; gap: 7px; height: 30px; align-items: center; }
+    .lyric-dots i { width: 9px; height: 9px; border-radius: 50%; background: currentColor; opacity: .3; transition: opacity .3s ease; }
+    .lyric-dots.active i.on { opacity: 1; }
+    /* значок в конце строки исполнителя: тише самого имени, но читается; касание открывает текст, как и касание обложки */
+    .artist-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .artist-row #trackArtist { flex: 1 1 auto; min-width: 0; }
+    .lyrics-indicator { flex: none; width: 44px; height: 44px; margin: -12px -12px -12px 0; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+    .lyrics-indicator.hidden { display: none; }
+    .lyrics-indicator svg { width: 18px; height: 18px; }
+    .media-expanded .artist-row #trackArtist { margin-top: 0; }
+    .media-expanded .artist-row { margin-top: 2px; }
+    /* переход обложка ⇄ текст: обложку на время перелёта подменяет копия поверх панели */
+    .cover-slot.instant, .cover-slot.instant .cover-button { transition: none !important; }
+    .cover-ghost { position: fixed; z-index: 60; margin: 0; object-fit: cover; pointer-events: none; transform-origin: 0 0; box-shadow: 0 18px 40px rgba(0,0,0,.3); }
+    .zen-mode .cover-slot, .zen-mode .cover-wash, .zen-mode .lyrics-head, .zen-mode .lyrics-view { display: none !important; }
+    @media (max-height: 650px) {
+      .media-expanded #clockHoursMins { font-size: 40px !important; }
+      .media-expanded .panel-controls button.h-16 { height: 48px; }
+      .media-expanded #progressWrap { margin-top: 10px; }
+      .cover-slot.visible { margin-bottom: 12px; }
+      .lyric-line { font-size: 21px; margin-bottom: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .cover-slot, .cover-button, .cover-wash, .lyrics-lines, .lyric-line, #clockHoursMins, .volume-slot, .volume-dock, .volume-dock > .relative, #volValueLabel { transition: none !important; } .cover-fade { animation: none !important; display: none !important; } .cover-wash.entering { animation: none; } }
+    .bt-empty { padding: 14px 2px; font-size: 13px; color: var(--text-muted); }
+
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: auto;
+      padding-top: 16px;
+      font-size: 14px;
+      color: var(--text-primary);
+      text-align: left;
+    }
+    .switch {
+      flex-shrink: 0;
+      position: relative;
+      width: 46px;
+      height: 28px;
+      border-radius: 14px;
+      background: var(--track-bg);
+      transition: background-color 0.2s ease;
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+      transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+    }
+    [aria-checked="true"] > .switch { background: #22c55e; }
+    [aria-checked="true"] > .switch::after { transform: translateX(18px); }
+
+    /* свои классы выше задают display и иначе перебили бы утилиту hidden */
+    #carPanelView .hidden { display: none !important; }
+
+
+    .battery { height: 16px; }
+    .battery::after { top: 5.5px; }
+    #clockHoursMins { cursor: pointer; text-align: left; }
+    #clockHoursMins:focus-visible, .setting-row:focus-visible, .sheet-back:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
+    .panel-top, .panel-track, .panel-controls { width: 100%; max-width: 520px; margin-left: auto; margin-right: auto; }
+    .settings-content { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding-bottom: 24px; touch-action: pan-y; }
+    #hudVolumeBar { transition: width 75ms linear; }
+    .setting-row { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border-subtle); text-align: left; font-size: 15px; }
+    .setting-row > span:last-child:not(.switch) { color: var(--text-secondary); text-align: right; font-size: 13px; }
+    .setting-note { margin: 8px 0; font-size: 12px; line-height: 1.4; color: var(--text-secondary); }
+    .setting-times { display: flex; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+    .setting-times label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+    .setting-times input, .preview-settings input { min-width: 0; color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; }
+    .preview-settings input { width: 100%; user-select: text; }
+    .setting-subsection { min-width: 0; }
+    .font-options { overflow-y: auto; min-height: 0; padding-bottom: 24px; touch-action: pan-y; }
+    .font-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 56px; border-bottom: 1px solid var(--border-subtle); text-align: left; font-size: 16px; }
+    .font-option svg { width: 19px; height: 19px; flex-shrink: 0; color: var(--text-primary); }
+    .font-option:focus-visible { outline: 2px solid var(--text-primary); outline-offset: -2px; }
+    .weather-settings-row { gap: 12px; }
+    .weather-settings-value { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+    .weather-settings-value span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .weather-settings-value svg { flex-shrink: 0; }
+    .weather-sheet-content { overflow-y: auto; min-height: 0; padding-bottom: 24px; touch-action: pan-y; }
+    .weather-sheet-content h3 { margin-top: 24px; }
+    .weather-selected { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+    .weather-geo { min-height: 52px; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border-subtle); text-align: left; font-size: 15px; font-weight: 500; }
+    .weather-geo svg { flex-shrink: 0; color: var(--text-secondary); }
+    .weather-geo:focus-visible, .weather-search input:focus-visible, .weather-search button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+    .weather-search { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border-subtle); }
+    .weather-search:focus-within { border-bottom-color: var(--text-primary); }
+    .weather-search input { flex: 1; min-width: 0; height: 52px; background: transparent; border: 0; padding: 0; user-select: text; color: var(--text-primary); font-size: 15px; }
+    .weather-search input::placeholder { color: var(--text-secondary); opacity: 1; }
+    .weather-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+    .weather-search button { flex-shrink: 0; min-height: 48px; padding: 0 2px; font-size: 14px; font-weight: 600; }
+    .weather-message { margin: 8px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-secondary); }
+    .weather-message:empty { display: none; }
+    #weatherCityResults .bt-item { min-height: 52px; padding: 8px 0; font-size: 14px; line-height: 1.4; }
+    .in-app .preview-settings { display: none; }
+    :root.zen-mode {
+      --bg-base: #080809;
+      --bg-surface: rgba(255, 255, 255, 0.06);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text-primary: #dedee2;
+      --text-secondary: rgba(255, 255, 255, 0.58);
+      --text-muted: rgba(255, 255, 255, 0.36);
+      --track-bg: rgba(255, 255, 255, 0.12);
+    }
+    .zen-mode #carPanelView { background: #080809; color: #b0b0b5; justify-content: center; }
+    .zen-mode .ambient-wash { opacity: 0.12; }
+    /* в дзене остаются часы и трек; управление жестами. Кнопки убраны из раскладки, иначе блок съезжает вверх */
+    .zen-mode .panel-controls, .zen-mode #phoneBattery, .zen-mode #carVoltage, .zen-mode #sourceRow, .zen-mode #progressWrap { display: none !important; }
+    .zen-mode .panel-top { margin: 0; padding-top: 0; }
+    .zen-mode .panel-track { margin: 0; padding: 0; flex: none; }
+    .zen-mode #clockDateStr { color: var(--text-muted); }
+    .zen-mode #clockHoursMins { color: #c4c4ca; }
+    .zen-mode .out-temp { color: var(--text-muted); }
+    .zen-mode #trackText { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border-subtle); }
+    .zen-mode #trackTitle { font-size: 22px; font-weight: 500; color: var(--text-secondary); -webkit-line-clamp: 2; }
+    .zen-mode #trackArtist { font-size: 16px; margin-top: 4px; color: var(--text-muted); }
+    @media (max-height: 520px) {
+      .in-app #carPanelView { overflow-y: auto; justify-content: flex-start; gap: 8px; }
+      .in-app .panel-track { margin-top: 0; margin-bottom: 0; padding-top: 6px; padding-bottom: 6px; }
+      .in-app .panel-controls { margin-top: auto; }
+      .in-app #progressWrap { margin-top: 8px; }
+      .in-app .panel-controls button.h-16 { height: 48px; }
+    }
+
+    .preview-full body { height: 100vh; min-height: 0; }
+    .preview-full main { min-height: 0; padding: 0 !important; }
+    .preview-full #headUnitSimulator { max-width: none !important; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+    .preview-full #carPanelView { height: 100% !important; }
+    .in-app #previewHeader { display: none; }
+    .in-app main { padding: 0 !important; }
+    .in-app #headUnitSimulator {
+      max-width: none !important;
+      height: 100vh;
+      border: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+    }
+    .in-app #carPanelView { height: 100vh !important; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- PREVIEW TOOLBAR -->
+  <header id="previewHeader" class="w-full bg-zinc-950 border-b border-zinc-900 px-3 py-1.5 flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+    <div class="flex items-center gap-2">
+      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+      <span class="font-medium text-zinc-300">Dashphonic · превью 30%</span>
+    </div>
+    <div class="flex items-center gap-1">
+      <button id="btnViewCar" class="px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-100 font-medium transition">Плеер</button>
+      <button id="btnToggleTheme" class="px-2.5 py-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 transition">Тема: Авто</button>
+      <button id="btnPreviewFull" class="px-2.5 py-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 transition" aria-pressed="false">Полный экран</button>
+      <button id="btnTogglePreviewFrame" class="px-2.5 py-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 transition">70/30</button>
+      <button id="btnViewSetup" class="px-2.5 py-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 transition">Настройки</button>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="flex-1 flex items-center justify-center p-0 sm:p-4 w-full">
+
+    <div id="headUnitSimulator" class="w-full max-w-[384px] mx-auto transition-all duration-300 flex rounded-none sm:rounded-[28px] overflow-hidden border-0 sm:border border-zinc-800/60 shadow-2xl">
+
+      <!-- LEFT 70% NAVIGATION MOCK (Только в режиме 70/30) -->
+      <div id="navMockPane" class="hidden w-[70%] bg-[#0b0d12] relative border-r border-zinc-800/60 flex-col justify-between p-7 select-none text-zinc-100">
+        <div class="flex items-center justify-between">
+          <div class="bg-zinc-900/90 border border-zinc-800 rounded-2xl px-4 py-3 flex items-center gap-3.5">
+            <svg class="w-6 h-6 text-zinc-100 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+            <div>
+              <div class="text-[11px] text-zinc-400 font-medium">350 м</div>
+              <div class="text-sm font-semibold text-zinc-100">Направо на ул. Мира</div>
+            </div>
+          </div>
+          <div class="text-xs text-zinc-500 font-medium">Навигация · 70%</div>
+        </div>
+
+        <div class="my-auto flex flex-col items-center justify-center text-center">
+          <div class="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 mb-3">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+            </svg>
+          </div>
+          <div class="text-sm font-medium text-zinc-400">Левая часть экрана (70%)</div>
+        </div>
+
+        <div class="flex items-center justify-between text-xs text-zinc-500 border-t border-zinc-900 pt-3">
+          <span>Прибытие <strong class="text-zinc-300 font-medium">14:45</strong></span>
+          <span>18 мин · 12,4 км</span>
+        </div>
+      </div>
+
+      <!-- RIGHT 30% SIDE PANEL (Чистая типографика без обложки) -->
+      <section id="carPanelView" class="app-panel w-full h-[690px] sm:h-[720px] flex flex-col justify-between p-6 relative overflow-hidden touch-none">
+
+        <!-- AMBIENT TINT (Мягкое фоновое свечение под настроение трека) -->
+        <div id="ambientTintLayer" class="ambient-wash absolute inset-0 pointer-events-none z-0"></div>
+        <div id="coverWash" class="cover-wash" aria-hidden="true"></div>
+
+        <!-- MINIMALIST VOLUME GESTURE HUD (Без лишнего текста) -->
+        <div id="volumeGestureHud" class="absolute inset-0 bg-black/80 z-30 opacity-0 pointer-events-none transition-opacity duration-200 flex flex-col items-center justify-center p-6">
+          <div id="hudVolumeNumber" class="tabular-clock text-7xl font-light text-white tracking-tight mb-6">18</div>
+          <div class="w-40 h-1.5 bg-white/15 rounded-full overflow-hidden">
+            <div id="hudVolumeBar" class="h-full bg-white rounded-full" style="width: 60%;"></div>
+          </div>
+        </div>
+
+        <div id="updateToast" class="update-toast" role="status" aria-hidden="true">
+          <button id="updateToastOpen" class="update-toast-open" tabindex="-1">
+            <span id="updateToastTitle" class="update-toast-title"></span>
+            <span id="updateToastSub" class="update-toast-sub"></span>
+          </button>
+          <button id="updateToastClose" class="update-toast-close" tabindex="-1" aria-label="Скрыть">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+
+        <!-- 1. TOP: ARCHITECTURAL CLOCK & DATE -->
+        <div class="panel-top relative z-10 pt-2">
+          <div class="flex items-center justify-between gap-3 mb-2">
+            <div id="clockDateStr" class="date-line">Понедельник, 2 ноября</div>
+            <div id="voltAlert" class="volt-alert hidden" role="alert"></div>
+            <div class="status-chip">
+              <button id="carVoltage" class="volt-num volt-btn hidden" aria-haspopup="dialog" aria-controls="voltSheet" aria-label="Напряжение бортовой сети"></button>
+              <div id="phoneBattery" class="battery hidden" role="img" aria-label="Заряд телефона">
+                <div class="battery-cell">
+                  <span class="battery-num" aria-hidden="true"></span>
+                  <div id="phoneBatteryFill" class="battery-fill"><span class="battery-num"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="clock-row">
+            <button id="clockHoursMins" aria-label="Открыть настройки" class="tabular-clock text-[82px] sm:text-[88px] font-semibold tracking-[-0.045em] leading-[0.92]">
+              14:27
+            </button>
+            <span id="outTemp" class="out-temp hidden"></span>
+          </div>
+        </div>
+
+        <!-- 2. CENTER: EDITORIAL TRACK TYPOGRAPHY & PROGRESS -->
+        <div class="panel-track relative z-10 my-auto py-6 flex flex-col justify-center">
+          <div id="sourceRow" class="source-row reserve off">
+            <span id="sourceName" class="truncate"></span>
+            <button id="btnSwitchBt" class="pill-btn reserve off">Слушать Bluetooth</button>
+          </div>
+          <div id="trackBlock" class="track-block">
+          <div id="lyricsHead" class="lyrics-head hidden">
+            <button id="coverMini" class="cover-mini hidden" aria-label="Скрыть текст песни"><img id="coverMiniImage" alt=""></button>
+            <div class="lyrics-head-text">
+              <div id="lyricsHeadTitle" class="lyrics-head-title"></div>
+              <div id="lyricsHeadArtist" class="lyrics-head-artist"></div>
+            </div>
+          </div>
+          <div id="coverSlot" class="cover-slot"><button id="coverButton" class="cover-button" aria-label="Показать текст песни"><img id="coverImage" alt=""></button></div>
+          <div id="trackText" class="track-text">
+          <h2 id="trackTitle" class="text-[28px] sm:text-[32px] font-semibold tracking-[-0.025em] leading-[1.15] line-clamp-3">
+            Midnight City
+          </h2>
+          <div class="artist-row">
+          <p id="trackArtist" class="text-lg font-normal text-sec mt-2.5 truncate">
+            M83
+          </p>
+          <button id="lyricsIndicator" class="lyrics-indicator hidden" aria-label="Показать текст песни"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M18 13v6.5"/><circle cx="16" cy="19.5" r="2"/></svg></button>
+          </div>
+          </div>
+          <div id="lyricsView" class="lyrics-view hidden" aria-live="off"><div id="lyricsLines" class="lyrics-lines"></div></div>
+
+          <!-- Clean Hairline Progress Bar -->
+          <div id="progressWrap" class="reserve mt-8">
+            <div class="w-full h-[3px] progress-track rounded-full overflow-hidden">
+              <div id="trackProgressBar" class="h-full progress-fill progress-bar"></div>
+            </div>
+            <div class="flex justify-between text-[11px] mono-num text-mut mt-2">
+              <span id="trackCurrentTime">01:42</span>
+              <span id="trackDuration">04:03</span>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- 3. BOTTOM: TRANSPORT BUTTONS & TACTILE VOLUME SLIDE BAR -->
+        <div class="panel-controls relative z-10 flex flex-col gap-3">
+          <button id="btnDevices" class="device-line off" aria-haspopup="dialog">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7 7l10 10-5 5V2l5 5L7 17"/>
+            </svg>
+            <span id="deviceLabel">Подключить телефон</span>
+          </button>
+
+          <!-- Transport Controls -->
+          <div class="grid grid-cols-3 gap-3 items-center">
+            <button id="btnPrevTrack" class="surface-btn h-16 rounded-2xl flex items-center justify-center" aria-label="Предыдущий трек">
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z"/>
+              </svg>
+            </button>
+
+            <button id="btnPlayPause" class="primary-play-btn h-16 rounded-2xl flex items-center justify-center shadow-md" aria-label="Воспроизведение / Пауза">
+              <svg id="iconPause" class="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+              </svg>
+              <svg id="iconPlay" class="w-7 h-7 hidden" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7L8 5z"/>
+              </svg>
+            </button>
+
+            <button id="btnNextTrack" class="surface-btn h-16 rounded-2xl flex items-center justify-center" aria-label="Следующий трек">
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Tactile Bottom Volume Slide Bar (захват пальцем и свайп влево/вправо меняет громкость, короткое нажатие — Mute) -->
+          <div id="volumeSlot" class="volume-slot">
+          <div id="volumeSlideDock" class="volume-dock h-12 rounded-2xl flex items-center justify-between px-4 select-none" role="slider" aria-label="Полоса громкости" aria-valuemin="0" aria-valuemax="36" aria-valuenow="18">
+            <!-- Internal live fill bar -->
+            <div id="volumeDockFill" class="volume-dock-fill absolute left-0 top-0 bottom-0 pointer-events-none" style="width: 60%;"></div>
+
+            <!-- Left icon -->
+            <div class="relative z-10 flex items-center gap-2.5 pointer-events-none">
+              <svg id="iconVolOn" class="w-4 h-4 text-sec" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07"/>
+              </svg>
+              <svg id="iconVolMuted" class="w-4 h-4 hidden text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6m0-6l6 6"/>
+              </svg>
+            </div>
+
+            <!-- Right numeric value -->
+            <span id="volValueLabel" class="relative z-10 mono-num text-xs font-medium text-sec pointer-events-none">18</span>
+          </div>
+          </div>
+        </div>
+
+        <div id="btSheet" class="bt-sheet" role="dialog" aria-modal="true" aria-labelledby="btSheetTitle" aria-hidden="true">
+          <div class="flex items-center gap-1" style="margin-top: -12px;">
+            <button id="btnCloseSheet" class="sheet-back" aria-label="Назад">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/>
+              </svg>
+            </button>
+            <h2 id="btSheetTitle" class="text-xl font-semibold">Bluetooth</h2>
+          </div>
+          <div class="flex-1 overflow-y-auto min-h-0" style="touch-action: pan-y;">
+            <h3>Сопряжённые</h3>
+            <div id="pairedList" class="bt-list"></div>
+            <div class="sheet-row flex items-center justify-between gap-3 mt-5">
+              <h3>Поблизости</h3>
+              <button id="btnDiscover" class="text-action"><span class="spinner" aria-hidden="true"></span><span id="discoverLabel">Найти</span></button>
+            </div>
+            <div id="foundList" class="bt-list mt-1.5"></div>
+          </div>
+          <button id="btnAutoResume" class="switch-row" role="switch" aria-checked="true">
+            <span>Продолжать музыку после запуска машины</span>
+            <span class="switch" aria-hidden="true"></span>
+          </button>
+        </div>
+
+        <div id="btRenameSheet" class="bt-sheet" role="dialog" aria-modal="true" aria-labelledby="btRenameTitle" aria-hidden="true">
+          <div class="flex items-center gap-1" style="margin-top: -12px;">
+            <button id="btnCloseBtRename" class="sheet-back" aria-label="Назад">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <h2 id="btRenameTitle" class="text-xl font-semibold">Имя устройства</h2>
+          </div>
+          <form id="btRenameForm" class="rename-form">
+            <label for="btRenameInput" class="rename-label">Имя в приложении</label>
+            <input id="btRenameInput" class="rename-input" type="text" maxlength="50" autocomplete="off">
+            <p class="rename-note">Название изменится только в этом приложении.</p>
+            <button class="rename-save" type="submit">Сохранить</button>
+          </form>
+        </div>
+
+        <div id="voltSheet" class="bt-sheet" role="dialog" aria-modal="true" aria-labelledby="voltSheetTitle" aria-hidden="true">
+          <div class="flex items-center gap-1" style="margin-top: -12px;">
+            <button id="btnCloseVolt" class="sheet-back" aria-label="Назад">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/>
+              </svg>
+            </button>
+            <h2 id="voltSheetTitle" class="text-xl font-semibold">Напряжение</h2>
+          </div>
+          <div class="volt-now">
+            <span id="voltNow" class="volt-now-num"></span>
+            <span id="voltState" class="volt-state"></span>
+          </div>
+          <figure id="voltChartBox" class="volt-chart">
+            <svg id="voltChart" role="img" aria-label="График напряжения за поездку"></svg>
+            <figcaption class="volt-axis"><span id="voltFrom"></span><span>сейчас</span></figcaption>
+          </figure>
+          <p id="voltEmpty" class="volt-empty hidden">График появится через пару минут поездки, когда прошивка пришлёт несколько значений.</p>
+          <dl class="volt-stats">
+            <div><dt>Минимум</dt><dd id="voltMin">–</dd></div>
+            <div><dt>Максимум</dt><dd id="voltMax">–</dd></div>
+            <div><dt>В пути</dt><dd id="voltTrip">–</dd></div>
+            <div><dt>До зарядки</dt><dd id="voltRest">–</dd></div>
+            <div><dt>При зарядке</dt><dd id="voltCharging">–</dd></div>
+          </dl>
+          <p id="voltNote" class="volt-note"></p>
+        </div>
+
+        <div id="setupGuideView" class="bt-sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true">
+          <div class="flex items-center gap-1" style="margin-top: -12px;">
+            <button id="btnBackToCar" class="sheet-back" aria-label="Назад">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <h2 id="settingsTitle" class="text-xl font-semibold">Настройки</h2>
+          </div>
+          <div class="settings-content">
+            <h3>Экран</h3>
+            <button id="btnSettingsTheme" class="setting-row"><span>Тема</span><span id="themeValue"></span></button>
+            <div id="autoThemeOptions" class="setting-subsection">
+            <button id="btnNightRule" class="setting-row"><span>Ночной режим</span><span id="nightRuleValue"></span></button>
+            <div id="nightTimeRow" class="setting-times hidden">
+              <label><span>С</span><input id="nightFrom" type="time" aria-label="Начало ночного режима"></label>
+              <label><span>До</span><input id="nightTo" type="time" aria-label="Конец ночного режима"></label>
+            </div>
+            </div>
+            <button id="btnZen" class="setting-row" role="switch" aria-checked="false"><span>Zen-режим</span><span class="switch" aria-hidden="true"></span></button>
+            <h3>Музыка</h3>
+            <button id="btnArtwork" class="setting-row" role="switch" aria-checked="true"><span>Обложки</span><span class="switch" aria-hidden="true"></span></button>
+            <button id="btnLyrics" class="setting-row" role="switch" aria-checked="true"><span>Текст песни</span><span class="switch" aria-hidden="true"></span></button>
+            <h3>Шрифты</h3>
+            <button id="btnMainFont" class="setting-row" aria-haspopup="dialog" aria-controls="fontSheet"><span>Основной шрифт</span><span id="mainFontValue"></span></button>
+            <button id="btnMonoFont" class="setting-row" aria-haspopup="dialog" aria-controls="fontSheet"><span>Шрифт таймингов</span><span id="monoFontValue"></span></button>
+            <h3>Общие</h3>
+            <button id="btnWeather" class="setting-row" role="switch" aria-checked="true"><span>Погода</span><span class="switch" aria-hidden="true"></span></button>
+            <button id="weatherOptions" class="setting-row weather-settings-row" aria-haspopup="dialog" aria-controls="weatherSheet">
+              <span>Местоположение</span>
+              <span class="weather-settings-value"><span id="weatherLocationLabel"></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m9 5 7 7-7 7"/></svg></span>
+            </button>
+            <button id="btnLanguage" class="setting-row"><span>Язык</span><span id="languageValue"></span></button>
+            <h3>Приложение</h3>
+            <button id="btnUpdate" class="setting-row"><span>Dashphonic <span id="appVersion" class="app-version"></span></span><span id="updateStatus"></span></button>
+            <p id="updateNote" class="setting-note hidden" role="status" aria-live="polite"></p>
+            <button id="btnAutoUpdate" class="setting-row" role="switch" aria-checked="true"><span>Проверять обновления</span><span class="switch" aria-hidden="true"></span></button>
+            <button id="btnTutorial" class="setting-row"><span>Как пользоваться</span><span></span></button>
+            <div id="previewSettings" class="preview-settings">
+              <h3>Предпросмотр</h3>
+              <label class="setting-note" for="inputTestTitle">Название трека</label>
+              <input id="inputTestTitle" type="text" value="Starboy" placeholder="Название трека">
+              <label class="setting-note" for="inputTestArtist">Исполнитель</label>
+              <input id="inputTestArtist" type="text" value="The Weeknd" placeholder="Исполнитель">
+              <button id="btnApplyTestTrack" class="setting-row">Обновить трек</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="fontSheet" class="bt-sheet" role="dialog" aria-modal="true" aria-labelledby="fontSheetTitle" aria-hidden="true">
+          <div class="flex items-center gap-1" style="margin-top: -12px;">
+            <button id="btnCloseFont" class="sheet-back" aria-label="Назад">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <h2 id="fontSheetTitle" class="text-xl font-semibold"></h2>
+          </div>
+          <div id="fontOptions" class="font-options" role="radiogroup"></div>
+        </div>
+
+        <div id="weatherSheet" class="bt-sheet" role="dialog" aria-modal="true" aria-labelledby="weatherSheetTitle" aria-hidden="true">
+          <div class="flex items-center gap-1" style="margin-top: -12px;">
+            <button id="btnCloseWeather" class="sheet-back" aria-label="Назад">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <h2 id="weatherSheetTitle" class="text-xl font-semibold">Местоположение</h2>
+          </div>
+          <div class="weather-sheet-content">
+            <h3>Для погоды</h3>
+            <p id="weatherSelected" class="weather-selected"></p>
+            <button id="btnWeatherGeo" class="weather-geo"><span>Использовать геолокацию</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path stroke-linecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button>
+            <p id="weatherGeoStatus" class="weather-message" role="status" aria-live="polite"></p>
+            <h3>Или выберите город</h3>
+            <div class="weather-search">
+              <input id="weatherCityInput" type="search" aria-label="Название города" placeholder="Например, Казань…" autocomplete="off">
+              <button id="btnCitySearch">Найти</button>
+            </div>
+            <p id="weatherStatus" class="weather-message" role="status" aria-live="polite"></p>
+            <div id="weatherCityResults" class="bt-list"></div>
+          </div>
+        </div>
+        <div id="onboarding" class="bt-sheet onboarding" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle" aria-hidden="true">
+          <div class="onboarding-top">
+            <span id="onboardingStep" class="onboarding-step"></span>
+            <button id="btnOnboardingSkip" class="text-action">Пропустить</button>
+          </div>
+          <div id="onboardingArt" class="onboarding-art" aria-hidden="true"></div>
+          <h2 id="onboardingTitle" class="onboarding-title"></h2>
+          <p id="onboardingText" class="onboarding-text"></p>
+          <button id="btnOnboardingNext" class="primary-play-btn onboarding-next">Далее</button>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    // Внутри APK данные приходят от магнитолы; демо-треки нужны только для превью в браузере
+    const inApp = Boolean(window.FytBridge);
+    function readSetting(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch (e) { return fallback; } }
+    function writeSetting(key, value) { try { localStorage.setItem(key, String(value)); } catch (e) {} }
+    const lang = readSetting("language", "ru") === "en" ? "en" : "ru";
+    document.documentElement.lang = lang;
+    let weatherEnabled = readSetting("weatherEnabled", "true") === "true";
+    let artworkEnabled = readSetting("artworkEnabled", "true") === "true";
+    let lyricsEnabled = readSetting("lyricsEnabled", "true") === "true";
+    let weatherPlace = null;
+    try { weatherPlace = JSON.parse(readSetting("weatherPlace", "null")); } catch (e) {}
+    if (!weatherPlace || !Number.isFinite(weatherPlace.latitude) || !Number.isFinite(weatherPlace.longitude) || typeof weatherPlace.label !== "string") weatherPlace = null;
+    let nightRule = readSetting("nightRule", "headlights");
+    let zenEnabled = readSetting("zenEnabled", "false") === "true";
+    document.documentElement.classList.toggle("zen-mode", zenEnabled);
+
+    const demoTracks = inApp
+      ? [{ title: "Bluetooth", artist: lang === "en" ? "Waiting for a track" : "Ожидание трека", duration: 0, rgb: [99, 102, 241] }]
+      : [
+          { title: "Midnight City", artist: "M83", duration: 243, rgb: [99, 102, 241] },
+          { title: "Starboy", artist: "The Weeknd, Daft Punk", duration: 230, rgb: [225, 29, 72] },
+          { title: "Nightcall", artist: "Kavinsky", duration: 258, rgb: [14, 165, 233] },
+          { title: "Veridis Quo", artist: "Daft Punk", duration: 345, rgb: [16, 185, 129] },
+          { title: "Кукушка", artist: "Кино", duration: 399, rgb: [217, 119, 6] }
+        ];
+
+    let state = {
+      trackIndex: 0,
+      isPlaying: !inApp,
+      elapsedSec: inApp ? 0 : 102,
+      volume: 18,
+      maxVolume: 36, // шкала FYT 0–36: так её режет SystemUI прошивки
+      isMuted: false,
+      savedVolume: 18,
+      splitPreview: false,
+      themeMode: (() => { try { return localStorage.getItem("themeMode") || "auto"; } catch (e) { return "auto"; } })(),
+      systemDark: null,
+      headlights: false,
+      source: null,
+      phoneConnected: !inApp,
+      phoneName: inApp ? "" : "iPhone",
+      autoResume: true,
+      batteryPct: null,
+      // radio.freq — сырое значение прошивки, формат проверяется на магнитоле (см. formatFreq)
+      radio: { freq: null, station: "", text: "", on: true }
+    };
+
+    const SOURCE_RADIO = 1;
+    const isRadio = () => state.source === SOURCE_RADIO;
+
+    // FM приходит в единицах 10 кГц (10180 → 101.8), AM — в кГц
+    function formatFreq(f) {
+      if (!f) return "";
+      return f >= 6000 ? `${(f / 100).toFixed(1)} FM` : `${f} AM`;
+    }
+
+    const PREVIEW_STATIONS = [
+      { freq: 10180, station: "Europa Plus", text: "Dua Lipa — Houdini" },
+      { freq: 10370, station: "Маяк", text: "" },
+      { freq: 8990, station: "", text: "" }
+    ];
+    let previewStation = 0;
+    if (!inApp) Object.assign(state.radio, PREVIEW_STATIONS[0]);
+
+    const elClockHM = document.getElementById("clockHoursMins");
+    const elClockDate = document.getElementById("clockDateStr");
+    const elTrackTitle = document.getElementById("trackTitle");
+    const elTrackArtist = document.getElementById("trackArtist");
+    const elProgressBar = document.getElementById("trackProgressBar");
+    const elCurrentTime = document.getElementById("trackCurrentTime");
+    const elDuration = document.getElementById("trackDuration");
+    const elIconPause = document.getElementById("iconPause");
+    const elIconPlay = document.getElementById("iconPlay");
+    const elVolLabel = document.getElementById("volValueLabel");
+    const elIconVolOn = document.getElementById("iconVolOn");
+    const elIconVolMuted = document.getElementById("iconVolMuted");
+    const elVolumeDock = document.getElementById("volumeSlideDock");
+    const elVolumeDockFill = document.getElementById("volumeDockFill");
+
+    const elVolumeHud = document.getElementById("volumeGestureHud");
+    const elHudVolumeNumber = document.getElementById("hudVolumeNumber");
+    const elHudVolumeBar = document.getElementById("hudVolumeBar");
+
+    let hudTimeout = null;
+
+    function formatTime(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      const m = Math.floor(s / 60);
+      const rem = s % 60;
+      return String(m).padStart(2, "0") + ":" + String(rem).padStart(2, "0");
+    }
+
+    function setText(el, text) {
+      if (el.textContent !== text) el.textContent = text;
+    }
+
+    // От длинного к короткому: «Понедельник, 2 ноября» → «Пн, 2 ноября» → «Пн, 2 нояб.»
+    const DATE_FORMATS = [
+      { weekday: "long", day: "numeric", month: "long" },
+      { weekday: "short", day: "numeric", month: "long" },
+      { weekday: "short", day: "numeric", month: "short" }
+    ].map((opts) => new Intl.DateTimeFormat(lang === "en" ? "en-GB" : "ru-RU", opts));
+
+    function capitalize(s) {
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    let lastDateKey = "";
+    function fitDate(now) {
+      for (const fmt of DATE_FORMATS) {
+        elClockDate.textContent = fmt.format(now);
+        if (elClockDate.scrollWidth <= elClockDate.clientWidth) return;
+      }
+    }
+
+    function updateClock(force) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, "0");
+      const mm = String(now.getMinutes()).padStart(2, "0");
+      setText(elClockHM, `${hh}:${mm}`);
+
+      const dateKey = now.toDateString();
+      if (force || dateKey !== lastDateKey) {
+        lastDateKey = dateKey;
+        fitDate(now);
+      }
+    }
+
+    // Ширина меняется при смене split-screen, батарея и вольтаж появляются позже: подбираем формат заново
+    new ResizeObserver(() => updateClock(true)).observe(elClockDate);
+    new ResizeObserver(entries => {
+      const width = entries[0].contentRect.width;
+      elClockHM.style.setProperty("--clock-size", `${Math.min(88, Math.max(38, (width - 48) * 0.25))}px`);
+      updateClock(true);
+    }).observe(document.getElementById("carPanelView"));
+
+    function showVolumeHud() {
+      const effectiveVol = state.isMuted ? 0 : state.volume;
+      const pct = Math.round((effectiveVol / state.maxVolume) * 100);
+      elHudVolumeNumber.textContent = state.isMuted ? "MUTE" : String(effectiveVol);
+      elHudVolumeBar.style.width = `${pct}%`;
+
+      elVolumeHud.classList.remove("opacity-0");
+      elVolumeHud.classList.add("opacity-100");
+      if (hudTimeout) clearTimeout(hudTimeout);
+      // пока палец держит жест, HUD не гаснет; спрячем его после отпускания
+      if (!volumeGestureActive()) scheduleHudHide();
+    }
+
+    function scheduleHudHide() {
+      if (hudTimeout) clearTimeout(hudTimeout);
+      hudTimeout = setTimeout(() => {
+        elVolumeHud.classList.remove("opacity-100");
+        elVolumeHud.classList.add("opacity-0");
+      }, 900);
+    }
+
+    let lastRenderedTrackTitle = null;
+
+    const elProgressWrap = document.getElementById("progressWrap");
+
+    let progressAnchor = performance.now();
+    let progressTimer = 0;
+    function currentPosition() {
+      return state.elapsedSec + (state.isPlaying && !isRadio() ? (performance.now() - progressAnchor) / 1000 : 0);
+    }
+    function syncProgress() { state.elapsedSec = currentPosition(); progressAnchor = performance.now(); }
+    function drawProgress(sec, duration) {
+      const ratio = duration > 0 ? sec / duration : 0;
+      elProgressBar.style.transform = `scaleX(${ratio.toFixed(4)})`;
+      setText(elCurrentTime, formatTime(sec));
+    }
+
+    function setAmbient(key, rgb) {
+      if (lastRenderedTrackTitle === key) return;
+      lastRenderedTrackTitle = key;
+      const root = document.documentElement.style;
+      root.setProperty("--amb-r", rgb[0]);
+      root.setProperty("--amb-g", rgb[1]);
+      root.setProperty("--amb-b", rgb[2]);
+    }
+
+    // Новый трек или станция: старый текст гаснет, новый проявляется на том же месте.
+    // Название и исполнитель приходят разными сообщениями, поэтому меняем их одним кадром после паузы
+    const elTrackText = document.getElementById("trackText");
+    let shownTrackKey = null;
+    let swapTimer = null;
+    function showTrackText(title, artist) {
+      const key = `${title}\n${artist}`;
+      if (key === shownTrackKey) return;
+      const first = shownTrackKey === null;
+      shownTrackKey = key;
+      const apply = () => {
+        setText(elTrackTitle, title);
+        setText(elTrackArtist, artist);
+        elTrackText.classList.remove("swapping");
+      };
+      clearTimeout(swapTimer);
+      if (first || document.hidden) return apply();
+      elTrackText.classList.add("swapping");
+      swapTimer = setTimeout(apply, 160);
+    }
+
+    // У радио нет длительности: название станции вместо трека, RDS-текст (обычно песня) под ним
+    function renderRadio() {
+      const r = state.radio;
+      const freq = formatFreq(r.freq);
+      const title = r.station || freq || (lang === "en" ? "Radio" : "Радио");
+      showTrackText(title, r.text || (r.station ? freq : ""));
+      setText(elSourceName, r.station && freq ? `${lang === "en" ? "Radio" : "Радио"} · ${freq}` : (lang === "en" ? "Radio" : "Радио"));
+      setAmbient(`radio:${title}`, rgbFromTitle(title));
+    }
+
+    function renderPlayer() {
+      kickProgress();
+      const radio = isRadio();
+      elProgressWrap.classList.toggle("off", radio);
+      const playing = radio ? state.radio.on : state.isPlaying;
+
+      if (radio) {
+        renderRadio();
+      } else {
+        const track = demoTracks[state.trackIndex];
+        showTrackText(track.title, track.artist);
+        setAmbient(`${track.title}\n${track.artist}`, track.rgb || rgbFromTitle(track.title + "\n" + track.artist));
+
+        // позиция старого трека может прийти уже после смены названия: за длительность не вылезаем
+        const shownSec = track.duration > 0 ? Math.min(currentPosition(), track.duration) : currentPosition();
+        drawProgress(shownSec, track.duration);
+        setText(elDuration, formatTime(track.duration));
+      }
+
+      if (playing) {
+        elIconPause.classList.remove("hidden");
+        elIconPlay.classList.add("hidden");
+      } else {
+        elIconPause.classList.add("hidden");
+        elIconPlay.classList.remove("hidden");
+      }
+
+      const displayVol = state.isMuted ? 0 : state.volume;
+      const volPct = Math.round((displayVol / state.maxVolume) * 100);
+      setText(elVolLabel, state.isMuted ? "MUTE" : String(displayVol));
+      elVolumeDockFill.style.width = `${volPct}%`;
+      elVolumeDock.setAttribute("aria-valuenow", String(displayVol));
+
+      if (state.isMuted || displayVol === 0) {
+        elIconVolOn.classList.add("hidden");
+        elIconVolMuted.classList.remove("hidden");
+      } else {
+        elIconVolOn.classList.remove("hidden");
+        elIconVolMuted.classList.add("hidden");
+      }
+      scheduleMedia();
+    }
+
+    let activeSocket = null;
+    function sendFytCommand(cmd, value) {
+      if (window.FytBridge && typeof window.FytBridge.onCommand === "function") {
+        try {
+          window.FytBridge.onCommand(cmd, String(value ?? ""));
+        } catch (err) {
+          console.warn("FytBridge error:", err);
+        }
+      }
+      if (activeSocket && activeSocket.readyState === WebSocket.OPEN) {
+        activeSocket.send(JSON.stringify({ command: cmd, value: value }));
+      }
+    }
+
+    function rgbFromTitle(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const r = Math.max(45, Math.min(220, (hash & 0xff0000) >> 16));
+      const g = Math.max(45, Math.min(220, (hash & 0x00ff00) >> 8));
+      const b = Math.max(65, Math.min(235, hash & 0x0000ff));
+      return [r, g, b];
+    }
+
+    window.updateBluetoothMetadata = function(data) {
+      if (!data) return;
+      const title = data.title || "Без названия";
+      const artist = data.artist || "Spotify";
+      demoTracks[0] = {
+        title: title,
+        artist: artist,
+        duration: Number(data.duration) || 240,
+        rgb: data.rgb || rgbFromTitle(title + artist)
+      };
+      state.trackIndex = 0;
+      state.elapsedSec = Number(data.position) || 0;
+      progressAnchor = performance.now();
+      if (typeof data.playing === "boolean") state.isPlaying = data.playing;
+      if (typeof data.volume === "number") state.volume = Math.max(0, Math.min(state.maxVolume, data.volume));
+      lastRenderedTrackTitle = null;
+      renderPlayer();
+    };
+
+    // Частичные обновления от FytIpcBridge: в патче только изменившиеся поля
+    const elBattery = document.getElementById("phoneBattery");
+    const elBatteryFill = document.getElementById("phoneBatteryFill");
+    const elBatteryNums = elBattery.querySelectorAll(".battery-num");
+    const elCarVoltage = document.getElementById("carVoltage");
+
+    // Формула из VoltageView в SystemUI прошивки: (raw + 4) × 0.1 В
+    // Ниже 11.8 В аккумулятор разряжен, выше 14.8 В генератор перезаряжает
+    const VOLT_LOW = 11.8;
+    const VOLT_HIGH = 14.8;
+    const VOLT_ALERT = 11.5;
+    const VOLT_ALERT_MS = 8000;
+    const elVoltAlert = document.getElementById("voltAlert");
+    let voltAlertArmed = true;
+    let voltAlertTimer = null;
+
+    function showVoltAlert(text) {
+      elVoltAlert.textContent = text;
+      elVoltAlert.classList.remove("hidden");
+      elClockDate.classList.add("hidden");
+      clearTimeout(voltAlertTimer);
+      voltAlertTimer = setTimeout(() => {
+        elVoltAlert.classList.add("hidden");
+        elClockDate.classList.remove("hidden");
+        updateClock(true);
+      }, VOLT_ALERT_MS);
+    }
+
+    // Свежесть данных. Связь с сервисом FYT пропала → и напряжение, и заряд телефона только последние известные.
+    // Напряжение прошивка может слать и только при изменении, поэтому таймаут включаем, лишь когда видно,
+    // что значения приходят регулярно: молчание дольше трёх таких интервалов — признак потерянной связи с MCU
+    const fresh = { fyt: true, voltAt: 0, voltGap: 0 };
+    const VOLT_STALE_MIN_MS = 15000;
+
+    function voltStale() {
+      if (!fresh.fyt) return true;
+      if (!fresh.voltGap) return false;
+      return Date.now() - fresh.voltAt > Math.max(3 * fresh.voltGap, VOLT_STALE_MIN_MS);
+    }
+
+    // Регулярной считаем отправку, когда три интервала подряд почти одинаковые;
+    // при отправке «по изменению» интервалы скачут, и таймаут не включается
+    const voltGaps = [];
+    function periodOf(gaps) {
+      if (gaps.length < 3) return 0;
+      const avg = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+      return gaps.every((g) => Math.abs(g - avg) <= avg * 0.3) ? Math.max(...gaps) : 0;
+    }
+
+    // класс снимаем после анимации, иначе при следующем появлении она не повторится
+    [elCarVoltage, elBattery, document.getElementById("outTemp")].forEach((el) =>
+      el.addEventListener("animationend", () => el.classList.remove("fade-in")));
+
+    let lastVolt = null;
+    function renderFreshness() {
+      const vs = voltStale();
+      if (elCarVoltage.classList.contains("stale-value") !== vs) {
+        elCarVoltage.classList.toggle("stale-value", vs);
+        if (lastVolt) applyVoltLabel(lastVolt);
+      }
+      if (outTempValid) {
+        elOutTemp.classList.toggle("stale-value", !fresh.fyt);
+        const t = elOutTemp.textContent.replace(/°F?$/, "");
+        const unit = elOutTemp.dataset.unit === "F" ? "°F" : "°C";
+        elOutTemp.setAttribute("aria-label", `Снаружи ${t} ${unit}${fresh.fyt ? "" : ", последнее известное значение"}`);
+      }
+      const bs = !fresh.fyt;
+      elBattery.classList.toggle("stale-value", bs);
+      if (state.batteryPct !== null) {
+        elBattery.setAttribute("aria-label", lang === "en" ? `Phone battery ${state.batteryPct}%${bs ? ", last known value" : ""}` : `Заряд телефона ${state.batteryPct}%${bs ? ", последнее известное значение" : ""}`);
+      }
+    }
+
+    function applyVoltLabel(v) {
+      const label = `${v.toFixed(1)} V`;
+      const stale = elCarVoltage.classList.contains("stale-value");
+      const warn = !stale && (v < VOLT_LOW || v > VOLT_HIGH);
+      setText(elCarVoltage, label);
+      elCarVoltage.classList.toggle("warn", warn);
+      elCarVoltage.setAttribute("aria-label",
+        lang === "en" ? (stale ? `Voltage: no fresh data, last ${label}` : warn ? `Voltage out of range: ${label}` : `Car voltage ${label}`)
+        : stale ? `Напряжение: нет свежих данных, последнее ${label}`
+        : warn ? `Напряжение вне нормы: ${label}` : `Напряжение бортовой сети ${label}`);
+    }
+
+    function renderCarVoltage(raw) {
+      const v = (Number(raw) + 4) * 0.1;
+      const valid = Number.isFinite(v) && v > 5 && v < 20;
+      if (valid && elCarVoltage.classList.contains("hidden")) elCarVoltage.classList.add("fade-in");
+      elCarVoltage.classList.toggle("hidden", !valid);
+      if (!valid) return;
+      const now = Date.now();
+      const gap = now - fresh.voltAt;
+      // повтор раньше чем через полсекунды — это пачка при подписке, а не регулярная отправка
+      if (fresh.voltAt && gap > 500) {
+        voltGaps.push(gap);
+        if (voltGaps.length > 3) voltGaps.shift();
+        fresh.voltGap = periodOf(voltGaps);
+      }
+      fresh.voltAt = now;
+      lastVolt = v;
+      recordVolt(v, now);
+      elCarVoltage.classList.remove("stale-value");
+      applyVoltLabel(v);
+      const label = `${v.toFixed(1)} V`;
+      // одно предупреждение на каждое падение: снова сработает, только когда напряжение вернётся в норму
+      if (v < VOLT_ALERT && voltAlertArmed) {
+        voltAlertArmed = false;
+        showVoltAlert(`${lang === "en" ? "Low voltage" : "Низкое напряжение"} · ${label}`);
+      } else if (v >= VOLT_LOW) {
+        voltAlertArmed = true;
+      }
+    }
+
+    // --- НАПРЯЖЕНИЕ ЗА ПОЕЗДКУ ---
+    // Поездка начинается с включения зажигания. Значения сводим в корзины по времени (минимум, максимум, последнее):
+    // минимум сохраняет просадку при запуске двигателя, даже когда корзины укрупняются
+    const TRIP_KEY = "voltTrip";
+    const TRIP_BINS_MAX = 720;
+    const TRIP_BIN_MS = PanelLogic.TRIP_BIN_MS;
+    // перерыв дольше этого без значений и без события ACC: магнитола спала, это уже новая поездка
+    const TRIP_GAP_MS = PanelLogic.TRIP_GAP_MS;
+    const VOLT_CHARGING = 13.2;
+    let trip = loadTrip();
+    let tripSavedAt = 0;
+    let tripClockWall = Date.now();
+    let tripClockMono = performance.now();
+    let accOn = null;
+
+    function newTrip(start) { return PanelLogic.newTrip(start); }
+
+    function loadTrip() {
+      try { return PanelLogic.restoreTrip(JSON.parse(localStorage.getItem(TRIP_KEY)), Date.now()); }
+      catch (e) { return newTrip(Date.now()); }
+    }
+
+    function saveTrip(force) {
+      const now = Date.now();
+      if (!force && now - tripSavedAt < 30000) return;
+      tripSavedAt = now;
+      try { localStorage.setItem(TRIP_KEY, JSON.stringify(trip)); } catch (e) { /* без сохранения график живёт до перезапуска */ }
+    }
+
+    function syncTripClock() {
+      const wall = Date.now();
+      const mono = performance.now();
+      const changed = PanelLogic.reconcileTripClock(trip, tripClockWall, tripClockMono, wall, mono);
+      tripClockWall = wall;
+      tripClockMono = mono;
+      if (changed) saveTrip(true);
+    }
+
+    function recordVolt(v, now) {
+      if (accOn === false) return;
+      if (accOn === null && trip.offAt && now - trip.offAt >= TRIP_GAP_MS) trip = newTrip(now);
+      if (!trip.chargingSeen && v < 13.0) trip.rest = v;
+      if (v > 13.5) { trip.chargingSeen = true; trip.charging = v; }
+      const bins = trip.bins;
+      const b = bins[bins.length - 1];
+      if (b && trip.bins === bins && now - b[0] < trip.binMs) {
+        b[1] = Math.min(b[1], v);
+        b[2] = Math.max(b[2], v);
+        b[3] = v;
+      } else {
+        trip.bins.push([now, v, v, v]);
+      }
+      if (trip.bins.length > TRIP_BINS_MAX) {
+        const merged = [];
+        for (let i = 0; i < trip.bins.length; i += 2) {
+          const a = trip.bins[i];
+          const c = trip.bins[i + 1];
+          merged.push(c ? [a[0], Math.min(a[1], c[1]), Math.max(a[2], c[2]), c[3]] : a);
+        }
+        trip.bins = merged;
+        trip.binMs *= 2;
+      }
+      saveTrip(false);
+      if (voltSheetOpen) renderVoltSheet();
+    }
+
+    function onAcc(on) {
+      trip = PanelLogic.updateAcc(trip, on, Date.now());
+      accOn = on;
+      saveTrip(true);
+    }
+
+    const elVoltSheet = document.getElementById("voltSheet");
+    const elVoltChart = document.getElementById("voltChart");
+    const elVoltChartBox = document.getElementById("voltChartBox");
+    const elVoltEmpty = document.getElementById("voltEmpty");
+    const elVoltNow = document.getElementById("voltNow");
+    const elVoltState = document.getElementById("voltState");
+    const elVoltFrom = document.getElementById("voltFrom");
+    const elVoltMin = document.getElementById("voltMin");
+    const elVoltMax = document.getElementById("voltMax");
+    const elVoltTrip = document.getElementById("voltTrip");
+    const elVoltNote = document.getElementById("voltNote");
+    let voltSheetOpen = false;
+
+    function voltStateText(v) {
+      if (v > VOLT_HIGH) return "Высокое напряжение";
+      if (v >= VOLT_CHARGING) return "Идёт зарядка";
+      if (v >= VOLT_LOW) return "Зарядки нет";
+      return "Низкое напряжение";
+    }
+
+    function formatDuration(ms) {
+      const min = Math.floor(ms / 60000);
+      if (min < 1) return lang === "en" ? "< 1 min" : "< 1 мин";
+      if (min < 60) return `${min} ${lang === "en" ? "min" : "мин"}`;
+      return `${Math.floor(min / 60)} ${lang === "en" ? "h" : "ч"} ${String(min % 60).padStart(2, "0")} ${lang === "en" ? "min" : "мин"}`;
+    }
+
+    function formatHM(t) {
+      const d = new Date(t);
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    }
+
+    // Ступенчатая линия: прошивка может слать напряжение только при изменении,
+    // и значение держится до следующего, а не плавно перетекает в него
+    function drawVoltChart(now) {
+      const bins = trip.bins;
+      const w = elVoltChart.clientWidth || 300;
+      const h = 168;
+      let lo = Math.min(11, ...bins.map((b) => b[1] - 0.3));
+      let hi = Math.max(15, ...bins.map((b) => b[2] + 0.3));
+      const t0 = trip.start;
+      const span = Math.max(now - t0, 60000);
+      const x = (t) => ((t - t0) / span) * w;
+      const y = (v) => h - ((v - lo) / (hi - lo)) * h;
+      const f = (n) => n.toFixed(1);
+      // Порог разряда пунктиром: по нему видно, насколько глубоко просело при запуске
+      let svg = `<line x1="0" x2="${w}" y1="${f(y(VOLT_LOW))}" y2="${f(y(VOLT_LOW))}" stroke="#ef4444" stroke-opacity="0.55" stroke-dasharray="4 4"/>`;
+      for (let g = Math.ceil(lo); g <= Math.floor(hi); g += 1) {
+        if (g % 2) continue;
+        svg += `<line x1="0" x2="${w}" y1="${f(y(g))}" y2="${f(y(g))}" stroke="var(--border-subtle)"/>`;
+        svg += `<text x="${w}" y="${f(y(g) - 5)}" text-anchor="end" font-size="10" font-weight="500" fill="var(--text-muted)">${g} V</text>`;
+      }
+      let band = "";
+      let line = "";
+      const warnDots = [];
+      bins.forEach((b, i) => {
+        const bx = x(b[0]);
+        const nx = i + 1 < bins.length ? x(bins[i + 1][0]) : x(now);
+        band += `<rect x="${f(bx)}" y="${f(y(b[2]))}" width="${f(Math.max(nx - bx, 1.5))}" height="${f(Math.max(y(b[1]) - y(b[2]), 0))}"/>`;
+        line += i === 0 ? `M${f(bx)} ${f(y(b[3]))}` : `V${f(y(b[3]))}`;
+        line += `H${f(nx)}`;
+        if (b[1] < VOLT_LOW) warnDots.push([bx, y(b[1])]);
+        else if (b[2] > VOLT_HIGH) warnDots.push([bx, y(b[2])]);
+      });
+      svg += `<g fill="var(--text-primary)" opacity="0.14">${band}</g>`;
+      svg += `<path d="${line}" fill="none" stroke="var(--text-primary)" stroke-width="2" stroke-linejoin="round"/>`;
+      warnDots.forEach(([dx, dy]) => { svg += `<circle cx="${f(dx)}" cy="${f(dy)}" r="3.5" fill="#ef4444"/>`; });
+      elVoltChart.setAttribute("viewBox", `0 0 ${w} ${h}`);
+      elVoltChart.innerHTML = svg;
+    }
+
+    function renderVoltSheet() {
+      syncTripClock();
+      const now = Date.now();
+      const stale = voltStale();
+      const bins = trip.bins;
+      if (lastVolt === null) {
+        setText(elVoltNow, "–");
+        setText(elVoltState, "Нет данных от прошивки");
+      } else {
+        setText(elVoltNow, `${lastVolt.toFixed(1)} V`);
+        elVoltNow.classList.toggle("warn", !stale && (lastVolt < VOLT_LOW || lastVolt > VOLT_HIGH));
+        elVoltNow.classList.toggle("stale-value", stale);
+        setText(elVoltState, stale ? "Нет свежих данных" : voltStateText(lastVolt));
+      }
+      const enough = bins.length >= 2;
+      elVoltChartBox.classList.toggle("hidden", !enough);
+      elVoltEmpty.classList.toggle("hidden", enough);
+      if (enough) {
+        drawVoltChart(now);
+        setText(elVoltFrom, `${lang === "en" ? "from" : "с"} ${formatHM(trip.start)}`);
+      }
+      const mins = bins.map((b) => b[1]);
+      const maxs = bins.map((b) => b[2]);
+      const vMin = bins.length ? Math.min(...mins) : null;
+      const vMax = bins.length ? Math.max(...maxs) : null;
+      setText(elVoltMin, vMin === null ? "–" : `${vMin.toFixed(1)} V`);
+      setText(elVoltMax, vMax === null ? "–" : `${vMax.toFixed(1)} V`);
+      elVoltMin.classList.toggle("warn", vMin !== null && vMin < VOLT_LOW);
+      elVoltMax.classList.toggle("warn", vMax !== null && vMax > VOLT_HIGH);
+      setText(elVoltTrip, formatDuration(PanelLogic.tripDuration(trip, now)));
+      setText(document.getElementById("voltRest"), trip.rest == null ? "–" : `${trip.rest.toFixed(1)} V`);
+      setText(document.getElementById("voltCharging"), trip.charging == null ? "–" : `${trip.charging.toFixed(1)} V`);
+      setText(elVoltNote, lang === "en"
+        ? "Guide: battery at rest ~12.6 V · engine running 13.7–14.7 V"
+        : "Ориентир: АКБ в покое ~12,6 V · двигатель 13,7–14,7 V");
+    }
+
+    function openVoltSheet() {
+      voltSheetOpen = true;
+      renderVoltSheet();
+      elVoltSheet.classList.add("open");
+      elVoltSheet.setAttribute("aria-hidden", "false");
+      document.getElementById("btnCloseVolt").focus();
+    }
+    function closeVoltSheet() {
+      voltSheetOpen = false;
+      elVoltSheet.classList.remove("open");
+      elVoltSheet.setAttribute("aria-hidden", "true");
+      elCarVoltage.focus({ preventScroll: true });
+    }
+    elCarVoltage.addEventListener("click", openVoltSheet);
+    document.getElementById("btnCloseVolt").addEventListener("click", closeVoltSheet);
+
+    // --- НАРУЖНАЯ ТЕМПЕРАТУРА ---
+    // Разбор MAIN 40 как в OutTempView из SystemUI прошивки. 0: прошивка температуру не знает.
+    // Биты 30–31: 1 нет данных, 2 и 3 датчик вне диапазона. Бит 28: Фаренгейт.
+    // Биты 0–27: десятые доли градуса со смещением 1000
+    const elOutTemp = document.getElementById("outTemp");
+    let outTempValid = false;
+    function decodeOutTemp(raw) {
+      const v = Number(raw) | 0;
+      if (!v || (v >>> 30) !== 0) return null;
+      const t = ((v & 0x0fffffff) - 1000) / 10;
+      return { t: Math.round(t), unit: (v >>> 28) & 1 ? "F" : "C" };
+    }
+    function renderOutTemp(raw) {
+      const d = decodeOutTemp(raw);
+      outTempValid = d !== null;
+      if (outTempValid && elOutTemp.classList.contains("hidden")) elOutTemp.classList.add("fade-in");
+      elOutTemp.classList.toggle("hidden", !outTempValid);
+      if (!outTempValid) return;
+      elOutTemp.dataset.unit = d.unit;
+      setText(elOutTemp, `${d.t < 0 ? "−" : ""}${Math.abs(d.t)}°${d.unit === "F" ? "F" : ""}`);
+      renderFreshness();
+    }
+
+    const WEATHER_KEY = "weatherOpenMeteo";
+    const WEATHER_INTERVAL = 30 * 60 * 1000;
+    let browserWeatherRequest = null;
+    let citySearchId = 0;
+    function weatherSource() { return weatherPlace ? `${weatherPlace.latitude},${weatherPlace.longitude}` : "geo"; }
+    function weatherStatus(ru, en) { document.getElementById("weatherStatus").textContent = lang === "en" ? en : ru; }
+    function weatherUpdateStatus(weather) {
+      const time = new Date(weather.time).toLocaleString(lang === "en" ? "en-GB" : "ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+      const label = lang === "en" ? `Updated: ${time}` : `Обновлено: ${time}`;
+      const target = weather.source === "geo" || (!weather.source && !weatherPlace) ? "weatherGeoStatus" : "weatherStatus";
+      document.getElementById(target).textContent = label;
+    }
+    function showWeatherError() {
+      const target = weatherPlace ? "weatherStatus" : "weatherGeoStatus";
+      document.getElementById(target).textContent = lang === "en" ? "Could not load weather" : "Не удалось получить погоду";
+    }
+    function renderWeatherOptions() {
+      document.getElementById("weatherOptions").classList.toggle("hidden", !weatherEnabled);
+      const label = weatherPlace ? weatherPlace.label : (lang === "en" ? "Current location" : "Текущее местоположение");
+      document.getElementById("weatherLocationLabel").textContent = label;
+      document.getElementById("weatherSelected").textContent = label;
+      let hasGeoWeather = false;
+      try { const cached = JSON.parse(localStorage.getItem(WEATHER_KEY)); hasGeoWeather = !weatherPlace && !!cached && (cached.source || "geo") === "geo"; } catch (e) {}
+      document.querySelector("#btnWeatherGeo span").textContent = hasGeoWeather
+        ? (lang === "en" ? "Refresh location" : "Обновить геолокацию")
+        : (lang === "en" ? "Use current location" : "Использовать геолокацию");
+    }
+    function saveWeather(weather) {
+      if (!weatherEnabled || !weather || !Number.isFinite(weather.temperature) || !Number.isFinite(weather.time)) return;
+      if ((weather.source || "geo") !== weatherSource()) return;
+      try { localStorage.setItem(WEATHER_KEY, JSON.stringify(weather)); } catch (e) {}
+      showWeather(weather);
+      renderWeatherOptions();
+      weatherUpdateStatus(weather);
+    }
+    function showWeather(weather) {
+      if (!weatherEnabled || !weather || !Number.isFinite(weather.temperature) || !Number.isFinite(weather.time) || (weather.source || "geo") !== weatherSource()) return;
+      const temp = Math.round(weather.temperature), stale = Date.now() - weather.time >= WEATHER_INTERVAL;
+      elOutTemp.classList.remove("hidden");
+      elOutTemp.classList.toggle("stale-value", stale);
+      elOutTemp.textContent = `${temp < 0 ? "−" : ""}${Math.abs(temp)}°`;
+      elOutTemp.setAttribute("aria-label", lang === "en" ? `Open-Meteo weather ${temp} °C${stale ? ", last known value" : ""}` : `Погода Open-Meteo ${temp} °C${stale ? ", последнее значение" : ""}`);
+    }
+    function refreshWeather() {
+      renderWeatherOptions();
+      if (!weatherEnabled) { elOutTemp.classList.add("hidden"); return; }
+      let weather = null;
+      try { weather = JSON.parse(localStorage.getItem(WEATHER_KEY)); } catch (e) {}
+      if (weather && (weather.source || "geo") !== weatherSource()) weather = null;
+      if (weather) { showWeather(weather); weatherUpdateStatus(weather); } else elOutTemp.classList.add("hidden");
+      if (weather && Date.now() - weather.time < WEATHER_INTERVAL) return;
+      if (inApp) {
+        sendFytCommand("WEATHER", weatherPlace ? JSON.stringify(weatherPlace) : "");
+      } else if (weatherPlace && !browserWeatherRequest) {
+        const source = weatherSource();
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherPlace.latitude}&longitude=${weatherPlace.longitude}&current=temperature_2m`;
+        browserWeatherRequest = fetch(url).then(response => { if (!response.ok) throw new Error("weather"); return response.json(); })
+          .then(data => saveWeather({ temperature: data.current.temperature_2m, time: Date.now(), source }))
+          .catch(() => weatherStatus("Не удалось загрузить погоду", "Could not load weather"))
+          .finally(() => { browserWeatherRequest = null; if (source !== weatherSource()) refreshWeather(); });
+      }
+    }
+    function selectWeatherPlace(place, request = true) {
+      citySearchId++;
+      sendFytCommand("WEATHER_CANCEL");
+      weatherPlace = place;
+      writeSetting("weatherPlace", JSON.stringify(place));
+      document.getElementById("weatherCityResults").replaceChildren();
+      weatherStatus("", "");
+      document.getElementById("weatherGeoStatus").textContent = "";
+      elOutTemp.classList.add("hidden");
+      if (request) refreshWeather(); else renderWeatherOptions();
+    }
+    function renderCityResults(payload) {
+      if (!payload || payload.id !== citySearchId) return;
+      const results = document.getElementById("weatherCityResults");
+      results.replaceChildren();
+      if (payload.error) return weatherStatus("Не удалось найти город. Проверьте интернет.", "Could not search. Check your connection.");
+      const cities = Array.isArray(payload.results) ? payload.results : [];
+      if (!cities.length) return weatherStatus("Ничего не найдено", "No locations found");
+      weatherStatus("Выберите город", "Select a location");
+      cities.forEach(city => {
+        if (!Number.isFinite(city.latitude) || !Number.isFinite(city.longitude) || typeof city.name !== "string") return;
+        const parts = [city.name, city.admin1, city.country].filter(Boolean);
+        const label = parts.filter((part, i) => parts.findIndex(x => x.toLocaleLowerCase() === part.toLocaleLowerCase()) === i).join(", ");
+        const button = document.createElement("button");
+        button.className = "bt-item";
+        button.textContent = label;
+        button.addEventListener("click", () => selectWeatherPlace({ label, latitude: city.latitude, longitude: city.longitude }));
+        results.append(button);
+      });
+    }
+    function searchWeatherCity() {
+      const query = document.getElementById("weatherCityInput").value.trim();
+      if (query.length < 2) return weatherStatus("Введите не менее двух букв", "Enter at least two letters");
+      const id = ++citySearchId;
+      document.getElementById("weatherCityResults").replaceChildren();
+      weatherStatus("Поиск…", "Searching…");
+      if (inApp) sendFytCommand("GEOCODE", JSON.stringify({ query, language: lang, id }));
+      else {
+        const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=${lang}&format=json`;
+        fetch(url).then(response => { if (!response.ok) throw new Error("geocode"); return response.json(); })
+          .then(data => renderCityResults({ id, results: data.results || [] }))
+          .catch(() => renderCityResults({ id, error: true }));
+      }
+    }
+    setInterval(refreshWeather, 5 * 60 * 1000);
+
+    // MAIN APP_ID_* из FinalMain: кто сейчас владеет звуком
+    const SOURCE_BT = 3;
+    const SOURCE_NAMES = {
+      1: "Радио", 2: "Звонок", 4: "DVD", 5: "AUX", 6: "ТВ", 7: "iPod",
+      8: "Музыка с USB", 9: "Видео", 10: "Другой плеер", 11: "Радио авто",
+      12: "Телефон авто", 13: "USB авто", 14: "Видеорегистратор"
+    };
+    const elSourceRow = document.getElementById("sourceRow");
+    const elSourceName = document.getElementById("sourceName");
+    const elBtnSwitchBt = document.getElementById("btnSwitchBt");
+    const elTrackBlock = document.getElementById("trackBlock");
+
+    function renderSource(id) {
+      state.source = id;
+      const other = id in SOURCE_NAMES;
+      elSourceRow.classList.toggle("off", !other);
+      // радио показываем как полноценный плеер, остальные источники — поверх приглушённого трека BT
+      elTrackBlock.classList.toggle("stale", other && !isRadio());
+      if (!other) return;
+      if (!isRadio()) {
+        const englishSources = { 2: "Call", 4: "DVD", 5: "AUX", 6: "TV", 7: "iPod", 8: "USB music", 9: "Video", 10: "Other player", 11: "Car radio", 12: "Car phone", 13: "Car USB", 14: "Dashcam" };
+        elSourceName.textContent = lang === "en" ? `Playing: ${englishSources[id] || SOURCE_NAMES[id]}` : `Звучит: ${SOURCE_NAMES[id]}`;
+      }
+      renderSwitchBt();
+    }
+
+    // без телефона слушать по Bluetooth нечего, во время звонка источник вернётся сам
+    function renderSwitchBt() {
+      const call = state.source === 2 || state.source === 12;
+      elBtnSwitchBt.classList.toggle("off", call || !state.phoneConnected);
+    }
+
+    elBtnSwitchBt.addEventListener("click", () => {
+      sendFytCommand("BT_SOURCE");
+      if (!inApp) {
+        renderSource(SOURCE_BT);
+        state.isPlaying = true;
+        renderPlayer();
+      }
+    });
+
+    // BLINK отдаёт заряд строкой; шкала зависит от телефона: HFP 0–5, Apple 0–9 или проценты
+    function batteryPercent(raw) { return PanelLogic.batteryPercent(raw); }
+
+    // прошивка помнит последний заряд и после отключения телефона, поэтому прячем его вместе с телефоном
+    function renderBattery(raw) {
+      const pct = raw === undefined ? state.batteryPct : batteryPercent(raw);
+      state.batteryPct = pct;
+      const hide = pct === null || !state.phoneConnected;
+      if (!hide && elBattery.classList.contains("hidden")) elBattery.classList.add("fade-in");
+      elBattery.classList.toggle("hidden", hide);
+      if (pct === null) return;
+      elBatteryFill.style.width = `${pct}%`;
+      elBatteryNums.forEach((el) => { el.textContent = String(pct); });
+      elBattery.classList.toggle("low", pct <= 20);
+      renderFreshness();
+    }
+
+    function volumeGestureActive() {
+      return dockStartX !== null || twoFingerStartY !== null;
+    }
+
+    const elPanelView = document.getElementById("carPanelView");
+    const coverSlot = document.getElementById("coverSlot");
+    const coverButton = document.getElementById("coverButton");
+    const coverImage = document.getElementById("coverImage");
+    const coverMini = document.getElementById("coverMini");
+    const coverMiniImage = document.getElementById("coverMiniImage");
+    const coverWash = document.getElementById("coverWash");
+    const lyricsHead = document.getElementById("lyricsHead");
+    const lyricsView = document.getElementById("lyricsView");
+    const lyricsLines = document.getElementById("lyricsLines");
+    const lyricsIndicator = document.getElementById("lyricsIndicator");
+    const MEDIA_PLACEHOLDER_TITLES = ["Bluetooth", "Без названия", "Untitled"];
+    const MEDIA_PLACEHOLDER_ARTISTS = ["Ожидание трека", "Waiting for a track"];
+    let mediaSignature = "", mediaRequestId = 0, mediaTimer = null, coverTimer = null, coverStaleTimer = null, lyricsStaleTimer = null, collapseTimer = null;
+    let coverPresent = false, coverSrc = "", coverRequest = 0, pendingCover = "", lyricRows = [], lyricIntro = false, lyricActive = -2, lyricsOpen = false, lyricsPending = false;
+    const layoutAnimations = new Map();
+
+    function setMediaExpanded(expanded) {
+      if (elPanelView.classList.contains("media-expanded") === expanded) return;
+      const items = Array.from(elPanelView.querySelectorAll(".panel-top > .flex, .clock-row"));
+      const before = items.map(el => el.getBoundingClientRect());
+      items.forEach(el => { layoutAnimations.get(el)?.cancel(); layoutAnimations.delete(el); });
+      elPanelView.classList.toggle("media-expanded", expanded);
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      items.forEach((el, i) => {
+        const after = el.getBoundingClientRect();
+        const x = before[i].left - after.left, y = before[i].top - after.top;
+        if (!x && !y) return;
+        const animation = el.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: "translate(0, 0)" }], { duration: 500, easing: "cubic-bezier(.2,.8,.2,1)" });
+        layoutAnimations.set(el, animation);
+        animation.onfinish = () => { if (layoutAnimations.get(el) === animation) layoutAnimations.delete(el); };
+      });
+    }
+
+    function updateMediaView() {
+      const wasLyrics = elPanelView.classList.contains("lyrics-mode");
+      // пока ищется текст нового трека, экран текста остаётся на месте: иначе панель схлопнется и раскроется обратно
+      const showLyrics = !zenEnabled && lyricsEnabled && (lyricRows.length > 0 || (lyricsPending && wasLyrics)) && (!coverPresent || lyricsOpen);
+      const expanded = !zenEnabled && (coverPresent || showLyrics);
+      // media-expanded ставим до .visible: слот растёт из нуля уже во flex-раскладке, и плеер плавно уезжает вниз
+      clearTimeout(collapseTimer);
+      if (expanded) setMediaExpanded(true);
+      else if (elPanelView.classList.contains("media-expanded")) {
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) setMediaExpanded(false);
+        else collapseTimer = setTimeout(() => setMediaExpanded(false), 600);
+      }
+      elPanelView.classList.toggle("lyrics-mode", showLyrics);
+      // состояние читается в момент кадра: отложенный кадр от прошлого трека не должен спрятать обложку нового
+      requestAnimationFrame(() => coverSlot.classList.toggle("visible", coverPresent && !zenEnabled && !elPanelView.classList.contains("lyrics-mode")));
+      lyricsHead.classList.toggle("hidden", !showLyrics);
+      lyricsView.classList.toggle("hidden", !showLyrics);
+      elTrackText.classList.toggle("hidden", showLyrics);
+      coverMini.classList.toggle("hidden", !coverPresent);
+      if (showLyrics) {
+        const track = demoTracks[state.trackIndex];
+        setText(document.getElementById("lyricsHeadTitle"), track.title);
+        setText(document.getElementById("lyricsHeadArtist"), track.artist);
+      }
+      lyricsIndicator.classList.toggle("hidden", !(!zenEnabled && coverPresent && lyricsEnabled && lyricRows.length > 0));
+      lyricsIndicator.setAttribute("aria-label", lang === "en" ? "Show lyrics" : "Показать текст песни");
+      coverButton.setAttribute("aria-label", !lyricRows.length ? (lang === "en" ? "Album art" : "Обложка") : (lang === "en" ? "Show lyrics" : "Показать текст песни"));
+      coverMini.setAttribute("aria-label", lang === "en" ? "Hide lyrics" : "Скрыть текст песни");
+      if (showLyrics && !wasLyrics && !lyricsOpen) { lyricsView.classList.remove("fade-in"); void lyricsView.offsetWidth; lyricsView.classList.add("fade-in"); }
+      if (showLyrics) renderLyrics(true);
+    }
+
+    function setCover(value) {
+      clearTimeout(coverStaleTimer);
+      value = artworkEnabled ? value || "" : "";
+      if (value && value === pendingCover) return;
+      const request = ++coverRequest;
+      pendingCover = value;
+      clearTimeout(coverTimer);
+      if (!value) {
+        coverPresent = false;
+        coverSrc = "";
+        coverWash.classList.remove("entering");
+        coverWash.classList.remove("visible");
+        updateMediaView();
+        coverTimer = setTimeout(() => {
+          if (request !== coverRequest) return;
+          coverImage.removeAttribute("src");
+          coverMiniImage.removeAttribute("src");
+          coverWash.style.backgroundImage = "";
+        }, 800);
+        return;
+      }
+      if (value === coverSrc && coverPresent) { pendingCover = ""; return; }
+      const image = new Image();
+      image.onload = () => {
+        const apply = () => {
+          if (request !== coverRequest) return;
+          clearTimeout(coverTimer);
+          pendingCover = "";
+          document.querySelectorAll(".cover-fade").forEach(el => el.remove());
+          coverWash.classList.remove("entering");
+          if (coverPresent && coverSrc && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            [coverImage, coverMiniImage, coverWash].forEach(el => {
+              const old = el.cloneNode(false);
+              old.removeAttribute("id");
+              old.setAttribute("aria-hidden", "true");
+              old.classList.add("cover-fade");
+              el.insertAdjacentElement("afterend", old);
+              old.addEventListener("animationend", () => old.remove(), { once: true });
+            });
+            void coverWash.offsetWidth;
+            coverWash.classList.add("entering");
+            coverWash.onanimationend = event => { if (event.animationName === "wash-enter") coverWash.classList.remove("entering"); };
+          }
+          coverSrc = value;
+          coverPresent = true;
+          coverImage.src = value;
+          coverMiniImage.src = value;
+          coverWash.style.backgroundImage = `url("${value}")`;
+          coverWash.classList.add("visible");
+          updateMediaView();
+        };
+        if (image.decode) image.decode().catch(() => {}).then(apply);
+        else apply();
+      };
+      image.onerror = () => { if (request === coverRequest) setCover(""); };
+      coverTimer = setTimeout(() => { if (request === coverRequest) setCover(""); }, 8000);
+      image.src = value;
+    }
+
+    function renderLyrics(force = false) {
+      if (lyricsView.classList.contains("hidden")) return;
+      const index = PanelLogic.lyricIndex(lyricRows, currentPosition());
+      if (lyricIntro && index < 0) {
+        // проигрыш до первой строки: точки загораются по мере приближения к ней, поэтому обновляются каждый кадр
+        const share = Math.max(0, Math.min(1, currentPosition() / lyricRows[0].time));
+        Array.from(lyricsLines.children[0].children).forEach((dot, i) => dot.classList.toggle("on", share >= i / 3));
+      }
+      if (index === lyricActive && !force) return;
+      lyricActive = index;
+      const offset = lyricIntro ? 1 : 0;
+      const activeEl = index >= 0 ? index + offset : (lyricIntro ? 0 : -1);
+      Array.from(lyricsLines.children).forEach((line, i) => {
+        line.classList.toggle("active", i === activeEl);
+        line.classList.toggle("past", i < activeEl);
+      });
+      const target = lyricsLines.children[Math.max(0, activeEl)];
+      if (target) lyricsLines.style.transform = `translateY(${Math.round(lyricsView.clientHeight * .28 - target.offsetTop)}px)`;
+    }
+    new ResizeObserver(() => renderLyrics(true)).observe(lyricsView);
+
+    function scheduleMedia(force = false) {
+      const track = demoTracks[state.trackIndex];
+      const title = (track.title || "").trim(), artist = (track.artist || "").trim();
+      // длительность в подпись не входит: она приходит отдельным сообщением и не должна перезапускать поиск
+      const signature = JSON.stringify([title, artist, isRadio(), state.phoneConnected, artworkEnabled, lyricsEnabled, zenEnabled]);
+      if (!force && signature === mediaSignature) return;
+      mediaSignature = signature;
+      const id = ++mediaRequestId;
+      clearTimeout(mediaTimer);
+      clearTimeout(coverStaleTimer);
+      if (previewAbort) { previewAbort.abort(); previewAbort = null; if (previewPendingKey) previewMediaCache.delete(previewPendingKey); previewPendingKey = ""; }
+      if (pendingCover) { ++coverRequest; pendingCover = ""; clearTimeout(coverTimer); }
+      lyricRows = []; lyricIntro = false; lyricActive = -2; lyricsLines.replaceChildren(); lyricsLines.style.transform = "";
+      const eligible = !zenEnabled && !isRadio() && state.phoneConnected && title && artist && !MEDIA_PLACEHOLDER_TITLES.includes(title) && !MEDIA_PLACEHOLDER_ARTISTS.includes(artist);
+      // старая обложка держится, пока не придёт ответ по новому треку, чтобы панель не прыгала вверх-вниз
+      lyricsPending = eligible && lyricsEnabled;
+      clearTimeout(lyricsStaleTimer);
+      if (lyricsPending) lyricsStaleTimer = setTimeout(() => { if (id === mediaRequestId && lyricsPending) { lyricsPending = false; updateMediaView(); } }, 8000);
+      if (!eligible || !artworkEnabled) setCover("");
+      else {
+        coverStaleTimer = setTimeout(() => { if (id === mediaRequestId) setCover(""); }, 8000);
+        updateMediaView();
+      }
+      if (!eligible) return;
+      mediaTimer = setTimeout(() => {
+        if (!inApp) return previewMedia(id);
+        const request = JSON.stringify({ id, title, artist, duration: Math.round(demoTracks[state.trackIndex].duration || 0) });
+        if (artworkEnabled) sendFytCommand("MEDIA_ART", request);
+        if (lyricsEnabled) sendFytCommand("MEDIA_LYRICS", request);
+      }, inApp ? 1000 : 300);
+    }
+
+    // Без моста превью само ходит в те же источники, что MediaLookup.kt: прототип показывает настоящие обложки и тексты
+    const previewMediaCache = new Map();
+    let previewAbort = null, previewPendingKey = "";
+    let previewMusicBrainzQueue = Promise.resolve();
+    async function previewJson(url, signal) {
+      const response = await fetch(url, { signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }
+    function previewImage(url, signal) {
+      return new Promise((resolve, reject) => {
+        if (signal.aborted) return reject(new Error("Aborted"));
+        const image = new Image();
+        const abort = () => { image.src = ""; reject(new Error("Aborted")); };
+        signal.addEventListener("abort", abort, { once: true });
+        image.onload = () => { signal.removeEventListener("abort", abort); resolve(url); };
+        image.onerror = error => { signal.removeEventListener("abort", abort); reject(error); };
+        image.src = url;
+      });
+    }
+    function closestByDuration(items, duration, seconds) {
+      return items.sort((a, b) => duration ? Math.abs(seconds(a) - duration) - Math.abs(seconds(b) - duration) : 0)[0];
+    }
+    async function previewArt(title, artist, duration, signal) {
+      for (const country of ["ru", "us"]) {
+        const data = await previewJson(`https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${title}`)}&entity=song&limit=15&country=${country}`, signal).catch(() => null);
+        if (signal.aborted) return "";
+        const found = (data?.results || []).filter(item => PanelLogic.matchesTitle(item.trackName || "", title, artist) && PanelLogic.matchesArtist(item.artistName || "", artist))
+          .filter(item => !duration || !item.trackTimeMillis || Math.abs(item.trackTimeMillis / 1000 - duration) <= 6);
+        const best = closestByDuration(found, duration, item => (item.trackTimeMillis || 0) / 1000);
+        if (best?.artworkUrl100?.includes("100x100bb")) return best.artworkUrl100.replace("100x100bb", "600x600bb");
+      }
+      // MusicBrainz отвечает 503 чаще раза в секунду, как и в MediaLookup.kt
+      const turn = previewMusicBrainzQueue.then(() => new Promise(resolve => setTimeout(resolve, 1100)));
+      previewMusicBrainzQueue = turn;
+      await turn;
+      if (signal.aborted) return "";
+      const query = `recording:"${PanelLogic.searchTitle(title).replace(/"/g, " ")}" AND artist:"${artist.replace(/"/g, " ")}"`;
+      const data = await previewJson(`https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(query)}&fmt=json&limit=15`, signal).catch(() => null);
+      const groups = (data?.recordings || [])
+        .filter(record => PanelLogic.matchesTitle(record.title || "", title, artist) && (record["artist-credit"] || []).some(credit => PanelLogic.matchesArtist(credit.name || credit.artist?.name || "", artist)))
+        .flatMap(record => (record.releases || []).map(release => release["release-group"]?.id))
+        .filter(id => /^[0-9a-f-]{36}$/.test(id || ""));
+      for (const id of [...new Set(groups)].slice(0, 3)) {
+        if (signal.aborted) return "";
+        const url = await previewImage(`https://coverartarchive.org/release-group/${id}/front-500`, signal).catch(() => "");
+        if (url) return url;
+      }
+      return "";
+    }
+    async function previewLyrics(title, artist, duration, signal) {
+      const query = `track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`;
+      const synced = item => item && typeof item.syncedLyrics === "string" && item.syncedLyrics.trim()
+        && PanelLogic.matchesTitle(item.trackName || "", title, artist) && PanelLogic.matchesArtist(item.artistName || "", artist);
+      const exact = await previewJson(`https://lrclib.net/api/get?${query}&duration=${duration}`, signal).catch(() => null);
+      if (signal.aborted) return null;
+      if (synced(exact)) return exact;
+      const results = await previewJson(`https://lrclib.net/api/search?${query}`, signal).catch(() => []);
+      return closestByDuration((Array.isArray(results) ? results : []).filter(synced), duration, item => item.duration || 0) || null;
+    }
+    async function previewMedia(id) {
+      const track = demoTracks[state.trackIndex];
+      const key = JSON.stringify([track.artist, track.title, artworkEnabled, lyricsEnabled]);
+      if (!previewMediaCache.has(key)) {
+        const controller = new AbortController();
+        previewAbort = controller;
+        previewPendingKey = key;
+        previewMediaCache.set(key, Promise.all([artworkEnabled ? previewArt(track.title, track.artist, 0, controller.signal) : "", lyricsEnabled ? previewLyrics(track.title, track.artist, Math.round(track.duration), controller.signal) : null]));
+      }
+      const [art, lyrics] = await previewMediaCache.get(key);
+      if (id !== mediaRequestId) return;
+      previewAbort = null; previewPendingKey = "";
+      // у треков из превью длительность примерная: берём настоящую, иначе строки разъедутся с полосой
+      if (lyrics?.duration > 0 && Math.abs(lyrics.duration - track.duration) > 1) {
+        track.duration = Math.round(lyrics.duration);
+        state.elapsedSec = Math.min(currentPosition(), track.duration);
+        progressAnchor = performance.now();
+        renderPlayer();
+      }
+      receiveMedia({ kind: "art", id, value: art });
+      receiveMedia({ kind: "lyrics", id, value: lyrics?.syncedLyrics || "" });
+    }
+
+    function receiveMedia(result) {
+      if (!result || result.id !== mediaRequestId || isRadio() || zenEnabled) return;
+      if (result.kind === "art") setCover(artworkEnabled ? result.value || "" : "");
+      if (result.kind === "lyrics" && lyricsEnabled) {
+        lyricsPending = false;
+        lyricRows = PanelLogic.parseLyrics(result.value);
+        lyricIntro = lyricRows.length > 0 && lyricRows[0].time >= 4;
+        const nodes = lyricRows.map(row => { const p = document.createElement("p"); p.className = "lyric-line"; p.textContent = row.text; return p; });
+        if (lyricIntro) {
+          const dots = document.createElement("div");
+          dots.className = "lyric-line lyric-dots";
+          dots.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
+          nodes.unshift(dots);
+        }
+        lyricsLines.replaceChildren(...nodes);
+        lyricActive = -2;
+        updateMediaView();
+      }
+    }
+
+    let coverFlight = null;
+    function endCoverFlight() {
+      if (!coverFlight) return;
+      const flight = coverFlight;
+      coverFlight = null;
+      flight.animation.cancel();
+      flight.ghost.remove();
+      flight.target.style.visibility = "";
+    }
+    // FLIP: замеряем обложку до и после переключения, раскладку меняем сразу, а перелёт рисует копия на transform
+    function toggleLyrics(open) {
+      if (open && !(lyricRows.length && lyricsEnabled)) return;
+      endCoverFlight();
+      const from = (open ? coverButton : coverMini).getBoundingClientRect();
+      lyricsOpen = open;
+      coverSlot.classList.add("instant");
+      updateMediaView();
+      coverSlot.classList.toggle("visible", !open);
+      const target = open ? coverMini : coverButton;
+      const to = target.getBoundingClientRect();
+      coverSlot.classList.remove("instant");
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches || !from.width || !to.width || !coverSrc) return;
+      const scale = from.width / to.width, fromRadius = open ? 12 : 8, toRadius = open ? 8 : 12;
+      const ghost = document.createElement("img");
+      ghost.src = coverSrc;
+      ghost.className = "cover-ghost";
+      // радиус и в самом стиле: после последнего кадра копия не должна стать квадратной до удаления
+      Object.assign(ghost.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: `${toRadius}px` });
+      document.body.appendChild(ghost);
+      target.style.visibility = "hidden";
+      const ease = "cubic-bezier(.4,0,.2,1)";
+      // копия масштабируется, поэтому радиус задаётся с поправкой на масштаб в каждом ключевом кадре: видимое скругление меняется ровно, без раздувания посередине
+      const frames = [0, .2, .4, .6, .8, 1].map(k => {
+        const s = scale + (1 - scale) * k;
+        return {
+          offset: k,
+          transform: `translate(${(from.left - to.left) * (1 - k)}px, ${(from.top - to.top) * (1 - k)}px) scale(${s})`,
+          borderRadius: `${(fromRadius + (toRadius - fromRadius) * k) / s}px`
+        };
+      });
+      const animation = ghost.animate(frames, { duration: 620, easing: ease });
+      const flight = { animation, ghost, target };
+      coverFlight = flight;
+      animation.onfinish = () => { if (coverFlight === flight) endCoverFlight(); };
+      // запасной таймер: при свёрнутом WebView анимация стоит, а обложка не должна остаться скрытой
+      setTimeout(() => { if (coverFlight === flight) endCoverFlight(); }, 900);
+      const incoming = open ? [lyricsHead.querySelector(".lyrics-head-text"), lyricsView] : [elTrackText];
+      incoming.forEach((el, i) => el.animate([{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }],
+        { duration: 480, delay: 200 + i * 70, easing: ease, fill: "backwards" }));
+    }
+    coverButton.addEventListener("click", () => toggleLyrics(true));
+    coverMini.addEventListener("click", () => toggleLyrics(false));
+    lyricsIndicator.addEventListener("click", () => toggleLyrics(true));
+    for (const [id, kind] of [["btnArtwork", "art"], ["btnLyrics", "lyrics"]]) {
+      const button = document.getElementById(id);
+      const enabled = () => kind === "art" ? artworkEnabled : lyricsEnabled;
+      button.setAttribute("aria-checked", String(enabled()));
+      sendFytCommand(kind === "art" ? "MEDIA_ART_ENABLED" : "MEDIA_LYRICS_ENABLED", enabled() && !zenEnabled ? "1" : "0");
+      button.addEventListener("click", () => {
+        if (kind === "art") { artworkEnabled = !artworkEnabled; writeSetting("artworkEnabled", artworkEnabled); }
+        else { lyricsEnabled = !lyricsEnabled; writeSetting("lyricsEnabled", lyricsEnabled); }
+        button.setAttribute("aria-checked", String(enabled()));
+        sendFytCommand(kind === "art" ? "MEDIA_ART_ENABLED" : "MEDIA_LYRICS_ENABLED", enabled() && !zenEnabled ? "1" : "0");
+        scheduleMedia(true);
+      });
+    }
+
+    window.fytPatch = function(p) {
+      syncTripClock();
+      const track = demoTracks[0];
+      syncProgress();
+      if (inApp && p.phoneConnected === false && state.phoneConnected) {
+        track.title = "Bluetooth";
+        track.artist = lang === "en" ? "Waiting for a track" : "Ожидание трека";
+        track.duration = 0;
+        state.elapsedSec = 0;
+      }
+      // пустое название на паузе тоже не стираем: после возобновления телефон его часто не присылает повторно
+      const metadataActive = "phoneConnected" in p ? p.phoneConnected : state.phoneConnected;
+      if ("title" in p && PanelLogic.metadataValue(track.title, p.title, metadataActive) !== track.title) {
+        track.title = PanelLogic.metadataValue(track.title, p.title, metadataActive) || (lang === "en" ? "Untitled" : "Без названия");
+        track.rgb = rgbFromTitle(track.title + track.artist);
+        state.elapsedSec = 0;
+      }
+      if ("artist" in p) track.artist = PanelLogic.metadataValue(track.artist, p.artist, metadataActive);
+      if ("title" in p || "artist" in p) track.rgb = rgbFromTitle(track.title + "\n" + track.artist);
+      if ("durationSec" in p) track.duration = p.durationSec;
+      if ("positionSec" in p) state.elapsedSec = p.positionSec;
+      if ("playing" in p) state.isPlaying = p.playing;
+      if ("volume" in p && !volumeGestureActive()) {
+        state.volume = p.volume;
+        if (p.volume > state.maxVolume) state.maxVolume = p.volume;
+      }
+      if ("muted" in p) state.isMuted = p.muted;
+      if ("batteryRaw" in p) renderBattery(p.batteryRaw);
+      if ("acc" in p) onAcc(p.acc);
+      if ("carVoltageRaw" in p) renderCarVoltage(p.carVoltageRaw);
+      if ("weather" in p) saveWeather(p.weather);
+      if ("geocode" in p) renderCityResults(p.geocode);
+      if ("weatherError" in p) showWeatherError();
+      if ("mediaLookup" in p) receiveMedia(p.mediaLookup);
+      if ("app" in p) { update.current = p.app.version; renderUpdate(); maybeCheckUpdate(); }
+      if ("update" in p) receiveUpdate(p.update);
+      if ("source" in p) renderSource(p.source);
+      if ("headlights" in p) {
+        state.headlights = p.headlights;
+        applyThemeMode();
+      }
+      if ("phoneConnected" in p) state.phoneConnected = p.phoneConnected;
+      if ("phoneName" in p) state.phoneName = p.phoneName;
+      if ("phoneConnected" in p || "phoneName" in p) renderPhone();
+      if ("btDevice" in p) addBtDevice(p.btDevice);
+      if ("btDiscoverEnd" in p) setDiscovering(false);
+      if ("autoResume" in p) renderAutoResume(p.autoResume);
+      if ("fyt" in p) {
+        fresh.fyt = p.fyt;
+        // после переподключения прошивка пришлёт текущие значения заново; до этого старые считаются устаревшими
+        if (p.fyt) { fresh.voltGap = 0; fresh.voltAt = 0; voltGaps.length = 0; }
+        renderFreshness();
+        if (voltSheetOpen) renderVoltSheet();
+      }
+      const r = state.radio;
+      if ("radioFreq" in p) r.freq = p.radioFreq;
+      if ("radioStation" in p) r.station = p.radioStation;
+      if ("radioText" in p) r.text = p.radioText;
+      if ("radioOn" in p) r.on = p.radioOn;
+      renderPlayer();
+    };
+
+    // --- DAMPED VOLUME CONTROL ---
+    const MAX_GESTURE_DELTA_PER_STROKE = 6; // Плавный ограничитель за один жест, чтобы случайно не выкрутить на максимум
+    const PIXELS_PER_VOLUME_STEP = 28;      // 28px хода пальца = 1 деление громкости
+
+    function setDampedGestureVolume(startVol, rawStepChange) {
+      state.isMuted = false;
+      const safeSteps = Math.max(-MAX_GESTURE_DELTA_PER_STROKE, Math.min(MAX_GESTURE_DELTA_PER_STROKE, rawStepChange));
+      const nextVol = Math.max(0, Math.min(state.maxVolume, Math.round(startVol + safeSteps)));
+      if (nextVol !== state.volume) {
+        state.volume = nextVol;
+        sendFytCommand("VOL_SET", state.volume);
+      }
+      renderPlayer();
+      showVolumeHud();
+    }
+
+    function toggleMuteState() {
+      if (inApp) {
+        // магнитола сама пришлёт новую громкость
+        sendFytCommand("MUTE");
+        return;
+      }
+      if (!state.isMuted) {
+        state.savedVolume = state.volume;
+        state.isMuted = true;
+        sendFytCommand("MUTE", 1);
+      } else {
+        state.isMuted = false;
+        state.volume = state.savedVolume || 15;
+        sendFytCommand("MUTE", 0);
+      }
+      renderPlayer();
+      showVolumeHud();
+    }
+
+    // --- BOTTOM VOLUME SLIDE DOCK (Захват кнопки громкости снизу и проведение влево / вправо) ---
+    let dockStartX = null;
+    let dockStartVol = 18;
+    let dockMoved = false;
+    let dockWasAsleep = false;
+    let volumeSleepTimer = null;
+    const elVolumeSlot = document.getElementById("volumeSlot");
+    const volumeCollapsed = () => elPanelView.classList.contains("media-expanded") && !elVolumeSlot.classList.contains("awake");
+    function sleepVolumeLater() {
+      clearTimeout(volumeSleepTimer);
+      volumeSleepTimer = setTimeout(() => elVolumeSlot.classList.remove("awake"), 2500);
+    }
+
+    elVolumeSlot.addEventListener("pointerdown", (e) => {
+      // второй палец на полосе — часть двухпальцевого жеста, а не новый захват
+      if (!e.isPrimary || twoFingerStartY !== null) return;
+      dockWasAsleep = volumeCollapsed();
+      clearTimeout(volumeSleepTimer);
+      elVolumeSlot.classList.add("awake");
+      dockStartX = e.clientX;
+      dockStartVol = state.isMuted ? 0 : state.volume;
+      dockMoved = false;
+      elVolumeDock.classList.add("dragging");
+      elVolumeSlot.setPointerCapture(e.pointerId);
+    });
+
+    elVolumeSlot.addEventListener("pointermove", (e) => {
+      if (dockStartX === null) return;
+      const deltaX = e.clientX - dockStartX; // Вправо = +, Влево = -
+      if (Math.abs(deltaX) > 8) {
+        dockMoved = true;
+      }
+      if (dockMoved) {
+        const stepChange = Math.trunc(deltaX / PIXELS_PER_VOLUME_STEP);
+        setDampedGestureVolume(dockStartVol, stepChange);
+      }
+    });
+
+    elVolumeSlot.addEventListener("pointerup", () => {
+      elVolumeDock.classList.remove("dragging");
+      const wasTap = dockStartX !== null && !dockMoved && !twoFingerUsed;
+      dockStartX = null;
+      dockMoved = false;
+      sleepVolumeLater();
+      // Короткое нажатие переключает Mute; по тонкой полосе первое касание только раскрывает её, чтобы звук не пропал случайно
+      if (wasTap && !dockWasAsleep) toggleMuteState();
+      else if (!wasTap) scheduleHudHide();
+    });
+
+    elVolumeSlot.addEventListener("pointercancel", () => {
+      elVolumeDock.classList.remove("dragging");
+      dockStartX = null;
+      dockMoved = false;
+      sleepVolumeLater();
+      scheduleHudHide();
+    });
+
+    // --- OPTIONAL 2-FINGER VERTICAL SWIPE ANYWHERE (Сохранено как дополнительный слепой жест) ---
+    const carPanel = document.getElementById("carPanelView");
+    const PIXELS_PER_TWO_FINGER_STEP = 30;
+    let twoFingerStartY = null;
+    let twoFingerStartVol = 18;
+    // Палец, с которого начался двухпальцевый жест, мог лечь на кнопку: её клик после жеста гасим
+    let twoFingerUsed = false;
+
+    function avgTouchY(touches) {
+      return (touches[0].clientY + touches[1].clientY) / 2;
+    }
+
+    carPanel.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2 && !sheetOpen && !voltSheetOpen && !settingsOpen && !weatherSheetOpen && !fontSheetOpen && !onboardingOpen) {
+        e.preventDefault();
+        twoFingerUsed = true;
+        dockStartX = null;
+        elVolumeDock.classList.remove("dragging");
+        twoFingerStartY = avgTouchY(e.touches);
+        twoFingerStartVol = state.isMuted ? 0 : state.volume;
+        showVolumeHud();
+      } else if (e.touches.length === 1) {
+        twoFingerUsed = false;
+      }
+    }, { passive: false });
+
+    carPanel.addEventListener("touchmove", (e) => {
+      if (twoFingerStartY === null) return;
+      e.preventDefault();
+      if (e.touches.length < 2) return;
+      const deltaY = twoFingerStartY - avgTouchY(e.touches);
+      const stepChange = Math.trunc(deltaY / PIXELS_PER_TWO_FINGER_STEP);
+      setDampedGestureVolume(twoFingerStartVol, stepChange);
+    }, { passive: false });
+
+    function endTwoFinger(e) {
+      if (twoFingerStartY === null || e.touches.length >= 2) return;
+      twoFingerStartY = null;
+      scheduleHudHide();
+    }
+    carPanel.addEventListener("touchend", endTwoFinger);
+    // без touchcancel жест «залипал», и громкость от магнитолы переставала приходить на экран
+    carPanel.addEventListener("touchcancel", endTwoFinger);
+
+    carPanel.addEventListener("click", (e) => {
+      if (!twoFingerUsed) return;
+      e.stopPropagation();
+      e.preventDefault();
+    }, true);
+
+    let touchStart = null, lastTap = 0;
+    carPanel.addEventListener("touchstart", (e) => {
+      const target = e.target instanceof Element ? e.target : e.target.parentElement;
+      if (e.touches.length !== 1 || settingsOpen || weatherSheetOpen || fontSheetOpen || sheetOpen || voltSheetOpen ||
+          (target && target.closest("button:not(.cover-button), input, select, textarea, [role='slider'], .volume-slot, .bt-sheet"))) {
+        touchStart = null;
+        lastTap = 0;
+        return;
+      }
+      const t = e.touches[0];
+      // обложка занимает пол-панели: свайп по ней листает треки, а нажатие открывает текст и не считается тапом
+      touchStart = { x: t.clientX, y: t.clientY, time: Date.now(), onCover: Boolean(target && target.closest(".cover-button")) };
+    }, { passive: true });
+    carPanel.addEventListener("touchend", (e) => {
+      if (!touchStart || e.touches.length || !e.changedTouches.length) { touchStart = null; return; }
+      const t = e.changedTouches[0];
+      const gesture = PanelLogic.classifyTrackGesture(t.clientX - touchStart.x, t.clientY - touchStart.y, Date.now() - touchStart.time);
+      if (gesture === "next" || gesture === "previous") {
+        document.getElementById(gesture === "next" ? "btnNextTrack" : "btnPrevTrack").click();
+        lastTap = 0;
+      } else if (gesture === "tap" && !touchStart.onCover) {
+        if (Date.now() - lastTap < 350) { document.getElementById("btnPlayPause").click(); lastTap = 0; }
+        else lastTap = Date.now();
+      } else lastTap = 0;
+      touchStart = null;
+    }, { passive: true });
+    carPanel.addEventListener("touchcancel", () => { touchStart = null; lastTap = 0; });
+
+    // --- TRANSPORT CONTROLS ---
+    // Мост сам решает, кому слать: у радио Play/Pause включает и выключает его, ←/→ меняют станцию
+    function stepPreviewStation(delta) {
+      previewStation = (previewStation + delta + PREVIEW_STATIONS.length) % PREVIEW_STATIONS.length;
+      Object.assign(state.radio, PREVIEW_STATIONS[previewStation], { on: true });
+      renderPlayer();
+    }
+
+    document.getElementById("btnPlayPause").addEventListener("click", () => {
+      syncProgress();
+      if (isRadio()) {
+        state.radio.on = !state.radio.on;
+        sendFytCommand(state.radio.on ? "PLAY" : "PAUSE");
+        return renderPlayer();
+      }
+      state.isPlaying = !state.isPlaying;
+      sendFytCommand(state.isPlaying ? "PLAY" : "PAUSE");
+      renderPlayer();
+    });
+
+    document.getElementById("btnNextTrack").addEventListener("click", () => {
+      syncProgress();
+      if (inApp) return sendFytCommand("NEXT");
+      if (isRadio()) return stepPreviewStation(1);
+      state.trackIndex = (state.trackIndex + 1) % demoTracks.length;
+      state.elapsedSec = 0;
+      state.isPlaying = true;
+      sendFytCommand("NEXT");
+      renderPlayer();
+    });
+
+    document.getElementById("btnPrevTrack").addEventListener("click", () => {
+      syncProgress();
+      if (inApp) return sendFytCommand("PREV");
+      if (isRadio()) return stepPreviewStation(-1);
+      if (state.elapsedSec > 5) {
+        state.elapsedSec = 0;
+      } else {
+        state.trackIndex = (state.trackIndex - 1 + demoTracks.length) % demoTracks.length;
+        state.elapsedSec = 0;
+      }
+      state.isPlaying = true;
+      sendFytCommand("PREV");
+      renderPlayer();
+    });
+
+    // Автоматическая тема: по фарам либо по времени устройства.
+    const btnToggleTheme = document.getElementById("btnToggleTheme");
+    const tr = (ru, en) => lang === "en" ? en : ru;
+    function inNightInterval(now, from, to) {
+      const minute = now.getHours() * 60 + now.getMinutes();
+      const parse = v => { const [h, m] = v.split(":").map(Number); return h * 60 + m; };
+      const start = parse(from), end = parse(to);
+      return start !== end && (start < end ? minute >= start && minute < end : minute >= start || minute < end);
+    }
+    function applyThemeMode() {
+      const root = document.documentElement;
+      const from = readSetting("nightFrom", "20:00"), to = readSetting("nightTo", "07:00");
+      const dark = state.themeMode === "dark" || (state.themeMode === "auto" &&
+        (nightRule === "time" ? inNightInterval(new Date(), from, to) : state.headlights));
+      if (state.themeMode === "auto" && nightRule === "headlights" && !state.headlights && state.systemDark === null) root.removeAttribute("data-theme");
+      else root.setAttribute("data-theme", dark || (state.themeMode === "auto" && nightRule === "headlights" && !state.headlights && state.systemDark === true) ? "dark" : "light");
+      const labels = { auto: tr("Авто", "Auto"), light: tr("Светлая", "Light"), dark: tr("Тёмная", "Dark") };
+      document.getElementById("themeValue").textContent = labels[state.themeMode] || labels.auto;
+      btnToggleTheme.textContent = `${tr("Тема", "Theme")}: ${labels[state.themeMode] || labels.auto}`;
+      document.getElementById("autoThemeOptions").classList.toggle("hidden", state.themeMode !== "auto");
+      document.getElementById("nightRuleValue").textContent = nightRule === "time" ? tr("По времени", "By time") : tr("По фарам", "Headlights");
+      document.getElementById("nightTimeRow").classList.toggle("hidden", nightRule !== "time");
+      if (document.activeElement !== document.getElementById("nightFrom")) document.getElementById("nightFrom").value = from;
+      if (document.activeElement !== document.getElementById("nightTo")) document.getElementById("nightTo").value = to;
+    }
+    function cycleTheme() {
+      const order = ["auto", "light", "dark"];
+      state.themeMode = order[(order.indexOf(state.themeMode) + 1) % order.length];
+      writeSetting("themeMode", state.themeMode); applyThemeMode();
+    }
+    btnToggleTheme.addEventListener("click", cycleTheme);
+    document.getElementById("btnSettingsTheme").addEventListener("click", cycleTheme);
+    document.getElementById("btnNightRule").addEventListener("click", () => {
+      nightRule = nightRule === "time" ? "headlights" : "time";
+      writeSetting("nightRule", nightRule); applyThemeMode();
+    });
+    ["nightFrom", "nightTo"].forEach(id => document.getElementById(id).addEventListener("change", e => {
+      if (e.target.value) writeSetting(id, e.target.value); applyThemeMode();
+    }));
+    document.getElementById("btnZen").addEventListener("click", () => {
+      zenEnabled = !zenEnabled; writeSetting("zenEnabled", zenEnabled);
+      document.documentElement.classList.toggle("zen-mode", zenEnabled);
+      sendFytCommand("MEDIA_ART_ENABLED", artworkEnabled && !zenEnabled ? "1" : "0");
+      sendFytCommand("MEDIA_LYRICS_ENABLED", lyricsEnabled && !zenEnabled ? "1" : "0");
+      scheduleMedia(true);
+      document.getElementById("btnZen").setAttribute("aria-checked", String(zenEnabled));
+    });
+    document.getElementById("btnZen").setAttribute("aria-checked", String(zenEnabled));
+    document.getElementById("btnWeather").setAttribute("aria-checked", String(weatherEnabled));
+    document.getElementById("btnWeather").addEventListener("click", () => {
+      weatherEnabled = !weatherEnabled; writeSetting("weatherEnabled", weatherEnabled);
+      document.getElementById("btnWeather").setAttribute("aria-checked", String(weatherEnabled));
+      if (!weatherEnabled) { citySearchId++; sendFytCommand("WEATHER_CANCEL"); }
+      refreshWeather();
+    });
+    document.getElementById("btnWeatherGeo").addEventListener("click", () => {
+      selectWeatherPlace(null, false);
+      if (inApp) sendFytCommand("WEATHER_GEO_PERMISSION");
+      else document.getElementById("weatherGeoStatus").textContent = lang === "en" ? "Choose a city in the preview" : "В предпросмотре выберите город";
+    });
+    document.getElementById("btnCitySearch").addEventListener("click", searchWeatherCity);
+    document.getElementById("weatherCityInput").addEventListener("keydown", e => { if (e.key === "Enter") searchWeatherCity(); });
+    document.getElementById("languageValue").textContent = lang === "en" ? "English" : "Русский";
+    document.getElementById("btnLanguage").addEventListener("click", () => {
+      writeSetting("language", lang === "en" ? "ru" : "en");
+      try { sessionStorage.setItem("openSettingsAfterLanguage", "1"); } catch (e) {}
+      location.reload();
+    });
+    applyThemeMode();
+    window.setSystemTheme = function(isDark) { state.systemDark = isDark; applyThemeMode(); };
+
+    // --- ОБНОВЛЕНИЯ: релизы GitHub того репозитория, из которого собран APK ---
+    const UPDATE_CHECK_MS = 12 * 3600000;
+    const UPDATE_RETRY_MS = 5 * 60000;
+    const elUpdateStatus = document.getElementById("updateStatus");
+    const elUpdateNote = document.getElementById("updateNote");
+    const elUpdateToast = document.getElementById("updateToast");
+    let updateToastTimer = 0;
+    let lastUpdateAttempt = 0;
+    const btnAutoUpdate = document.getElementById("btnAutoUpdate");
+    let autoUpdate = readSetting("autoUpdate", "true") === "true";
+    let update = { state: "idle", current: inApp ? "" : "1.0.0" };
+    // Заметки к релизу пишутся в Markdown: заголовки отбрасываем, пункты списка склеиваем в одну строку
+    function releaseNotes(text) {
+      return (text || "").split("\n").filter(line => !/^\s*#/.test(line))
+        .map(line => line.replace(/^\s*[-*+]\s+/, "").replace(/[*_`>]/g, "").trim()).filter(Boolean)
+        .join("; ").slice(0, 240);
+    }
+    function renderUpdate() {
+      const s = update.state;
+      document.getElementById("btnUpdate").dataset.state = s;
+      document.getElementById("appVersion").textContent = update.current;
+      elUpdateStatus.textContent = {
+        idle: tr("Проверить обновления", "Check for updates"),
+        checking: tr("Проверяем…", "Checking…"),
+        latest: tr("Последняя версия", "Up to date"),
+        available: tr(`Установить ${update.version}`, `Install ${update.version}`),
+        downloading: tr(`Загрузка ${update.progress || 0}%`, `Downloading ${update.progress || 0}%`),
+        permission: tr("Нужно разрешение", "Permission needed"),
+        installing: tr("Установка…", "Installing…"),
+        error: tr("Повторить", "Try again")
+      }[s];
+      let note = "";
+      if (s === "available") note = releaseNotes(update.notes);
+      else if (s === "permission") note = tr("Разрешите Dashphonic устанавливать приложения и вернитесь назад: установка продолжится сама.", "Allow Dashphonic to install apps, then go back. The update continues on its own.");
+      else if (s === "error" && update.reason === "signature") note = tr("Файл подписан другим ключом. Удалите приложение и поставьте APK со страницы релизов.", "The file is signed with a different key. Uninstall the app and install the APK from the releases page.");
+      else if (s === "error") note = tr("Не удалось проверить или загрузить обновление. Проверьте интернет и попробуйте снова.", "Could not check or download the update. Check your connection and try again.");
+      elUpdateNote.textContent = note;
+      elUpdateNote.classList.toggle("hidden", !note);
+      if (s === "available" && readSetting("updateSeen", "") !== update.version) showUpdateToast();
+      btnAutoUpdate.setAttribute("aria-checked", String(autoUpdate));
+    }
+    function showUpdateToast() {
+      writeSetting("updateSeen", update.version);
+      document.getElementById("updateToastTitle").textContent = tr(`Вышла версия ${update.version}`, `Version ${update.version} is out`);
+      document.getElementById("updateToastSub").textContent = tr("Нажмите, чтобы обновить", "Tap to update");
+      document.getElementById("updateToastClose").setAttribute("aria-label", tr("Скрыть", "Dismiss"));
+      setUpdateToast(true);
+      clearTimeout(updateToastTimer);
+      updateToastTimer = setTimeout(() => setUpdateToast(false), 8000);
+    }
+    function setUpdateToast(visible) {
+      elUpdateToast.classList.toggle("show", visible);
+      elUpdateToast.setAttribute("aria-hidden", String(!visible));
+      elUpdateToast.querySelectorAll("button").forEach(b => { b.tabIndex = visible ? 0 : -1; });
+    }
+    function receiveUpdate(next) {
+      update = { ...update, ...next };
+      if (next.state === "latest" || next.state === "available") writeSetting("updateCheckedAt", Date.now());
+      if (next.state !== "error") delete update.reason;
+      if (next.state === "latest") delete update.version;
+      renderUpdate();
+    }
+    function checkUpdate() {
+      lastUpdateAttempt = Date.now();
+      receiveUpdate({ state: "checking" });
+      if (inApp) return sendFytCommand("UPDATE_CHECK");
+      // превью: имитация найденного релиза и загрузки
+      setTimeout(() => receiveUpdate(update.current === "1.0.1" ? { state: "latest" } : { state: "available", version: "1.0.1", notes: "## Обновление\n- Пример описания для предпросмотра" }), 700);
+    }
+    function installUpdate() {
+      if (inApp) return sendFytCommand("UPDATE_INSTALL");
+      let progress = 0;
+      const timer = setInterval(() => {
+        progress += 20;
+        receiveUpdate(progress < 100 ? { state: "downloading", progress } : { state: "installing" });
+        if (progress >= 100) { clearInterval(timer); setTimeout(() => receiveUpdate({ state: "latest", current: "1.0.1" }), 900); }
+      }, 300);
+    }
+    function maybeCheckUpdate() {
+      if (inApp && autoUpdate && !["checking", "downloading", "installing"].includes(update.state) && Date.now() - lastUpdateAttempt > UPDATE_RETRY_MS && Date.now() - Number(readSetting("updateCheckedAt", "0")) > UPDATE_CHECK_MS) checkUpdate();
+    }
+    document.getElementById("btnUpdate").addEventListener("click", () => {
+      if (update.state === "available") installUpdate();
+      else if (!["checking", "downloading", "installing"].includes(update.state)) checkUpdate();
+    });
+    btnAutoUpdate.addEventListener("click", () => {
+      autoUpdate = !autoUpdate;
+      writeSetting("autoUpdate", autoUpdate);
+      renderUpdate();
+    });
+    document.getElementById("updateToastClose").addEventListener("click", () => setUpdateToast(false));
+    document.getElementById("updateToastOpen").addEventListener("click", () => {
+      setUpdateToast(false);
+      showSetupPanel();
+      // scrollIntoView прокрутил бы и сам лист с overflow: hidden, сдвинув заголовок
+      const list = elSetupView.querySelector(".settings-content"), row = document.getElementById("btnUpdate");
+      list.scrollTop += row.getBoundingClientRect().top - list.getBoundingClientRect().top - list.clientHeight / 2;
+      row.focus({ preventScroll: true });
+    });
+    renderUpdate();
+
+    // --- BLUETOOTH: телефон, сопряжённые и найденные устройства ---
+    const CONNECT_TIMEOUT_MS = 20000;
+    const elDeviceBtn = document.getElementById("btnDevices");
+    const elDeviceLabel = document.getElementById("deviceLabel");
+    const elSheet = document.getElementById("btSheet");
+    const elPairedList = document.getElementById("pairedList");
+    const elFoundList = document.getElementById("foundList");
+    const elBtnDiscover = document.getElementById("btnDiscover");
+    const elBtnAutoResume = document.getElementById("btnAutoResume");
+
+    let sheetOpen = false;
+    let discovering = false;
+    const btDevices = { paired: new Map(), found: new Map() };
+    let connecting = null; // { addr, name, failed, timer }
+    const btAliases = new Map();
+    try {
+      const saved = JSON.parse(readSetting("btAliases", "[]"));
+      if (Array.isArray(saved)) saved.forEach(entry => {
+        if (Array.isArray(entry) && typeof entry[0] === "string" && entry[1] && typeof entry[1].alias === "string" && typeof entry[1].original === "string") btAliases.set(entry[0], entry[1]);
+      });
+    } catch (e) {}
+    const aliasKey = addr => String(addr).toUpperCase();
+    const deviceName = dev => btAliases.get(aliasKey(dev.addr))?.alias || dev.name;
+    function saveBtAliases() { writeSetting("btAliases", JSON.stringify(Array.from(btAliases.entries()))); }
+    function connectedPhoneLabel() {
+      if (!state.phoneName) return lang === "en" ? "Phone connected" : "Телефон подключён";
+      return PanelLogic.connectedPhoneName(state.phoneName, btDevices.paired.values(), btAliases);
+    }
+
+    function renderPhone() {
+      const on = Boolean(state.phoneConnected);
+      elDeviceBtn.classList.toggle("off", !on);
+      elDeviceLabel.textContent = on ? connectedPhoneLabel() : (lang === "en" ? "Connect phone" : "Подключить телефон");
+      renderBattery();
+      renderSwitchBt();
+      if (on && connecting && !connecting.failed) {
+        clearTimeout(connecting.timer);
+        connecting = null;
+      }
+      if (sheetOpen) renderBtLists();
+    }
+
+    function uniquelyConnected(dev) {
+      if (!state.phoneConnected || state.phoneName !== dev.name) return false;
+      const matches = Array.from(btDevices.paired.values()).filter(device => device.name === dev.name);
+      return matches.length === 1 && aliasKey(matches[0].addr) === aliasKey(dev.addr);
+    }
+
+    function deviceStatus(dev) {
+      if (connecting && connecting.addr === dev.addr) {
+        return connecting.failed ? ["Не удалось", "err"] : ["Подключение…", ""];
+      }
+      // адрес подключённого телефона прошивка не отдаёт отдельным кодом, сверяем по имени
+      if (uniquelyConnected(dev)) return ["Подключено", "ok"];
+      return ["", ""];
+    }
+
+    function renderList(el, map, emptyText) {
+      el.replaceChildren();
+      if (map.size === 0) {
+        const empty = document.createElement("div");
+        empty.className = "bt-empty";
+        empty.textContent = emptyText;
+        el.append(empty);
+        return;
+      }
+      for (const dev of map.values()) {
+        const row = document.createElement("div");
+        row.className = "bt-item";
+        row.dataset.addr = dev.addr;
+        const connect = document.createElement("button");
+        connect.type = "button";
+        connect.className = "bt-connect";
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = deviceName(dev);
+        const [text, tone] = deviceStatus(dev);
+        const status = document.createElement("span");
+        status.className = `status ${tone}`;
+        status.textContent = text;
+        connect.append(name, status);
+        row.append(connect);
+        if (map === btDevices.paired) {
+          const edit = document.createElement("button");
+          edit.type = "button";
+          edit.className = "bt-rename";
+          edit.setAttribute("aria-label", lang === "en" ? `Rename ${deviceName(dev)}` : `Изменить имя ${deviceName(dev)}`);
+          edit.innerHTML = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z"/></svg>';
+          edit.addEventListener("click", event => { event.stopPropagation(); openBtRename(dev); });
+          row.append(edit);
+        }
+        el.append(row);
+      }
+    }
+
+    function renderBtLists() {
+      renderList(elPairedList, btDevices.paired, "Нет сопряжённых устройств");
+      renderList(elFoundList, btDevices.found, discovering ? "Ищем устройства…" : "Нажмите «Найти», чтобы увидеть новые устройства");
+    }
+
+    function addBtDevice(dev) {
+      const map = btDevices[dev.list];
+      if (!map) return;
+      // устройство из поиска, которое уже сопряжено, второй раз не показываем
+      if (dev.list === "found" && btDevices.paired.has(dev.addr)) return;
+      map.set(dev.addr, dev);
+      if (dev.list === "paired") {
+        const alias = btAliases.get(aliasKey(dev.addr));
+        if (alias && alias.original !== dev.name) { alias.original = dev.name; saveBtAliases(); }
+        if (state.phoneConnected) renderPhone();
+      }
+      if (sheetOpen) renderBtLists();
+    }
+
+    function setDiscovering(on) {
+      discovering = on;
+      setText(document.getElementById("discoverLabel"), on ? "Остановить" : "Найти");
+      elBtnDiscover.classList.toggle("busy", on);
+      if (sheetOpen) renderBtLists();
+    }
+
+    function onBtItemClick(e) {
+      const connect = e.target.closest(".bt-connect");
+      const row = connect && connect.closest(".bt-item");
+      if (!row) return;
+      const dev = btDevices.paired.get(row.dataset.addr) || btDevices.found.get(row.dataset.addr);
+      if (!dev || uniquelyConnected(dev)) return;
+      if (connecting) clearTimeout(connecting.timer);
+      connecting = { addr: dev.addr, name: dev.name, failed: false };
+      connecting.timer = setTimeout(() => {
+        if (!connecting) return;
+        connecting.failed = true;
+        renderBtLists();
+      }, CONNECT_TIMEOUT_MS);
+      // поиск мешает модулю подключаться: останавливаем его, как стоковое приложение
+      if (discovering) {
+        sendFytCommand("BT_DISCOVER", "0");
+        setDiscovering(false);
+      }
+      sendFytCommand("BT_CONNECT", dev.addr);
+      renderBtLists();
+      if (!inApp) setTimeout(() => window.fytPatch({ phoneConnected: true, phoneName: dev.name }), 1200);
+    }
+    let pairedTouch = null;
+    let suppressPairedClick = false;
+    elPairedList.addEventListener("touchstart", event => {
+      const row = event.target.closest(".bt-item");
+      if (!row || event.touches.length !== 1) { pairedTouch = null; return; }
+      const touch = event.touches[0];
+      pairedTouch = { row, x: touch.clientX, y: touch.clientY };
+      suppressPairedClick = false;
+    }, { passive: true });
+    // строка едет за пальцем, чтобы было видно, что свайп распознан и куда он ведёт
+    elPairedList.addEventListener("touchmove", event => {
+      if (!pairedTouch || event.touches.length !== 1) return;
+      const dx = event.touches[0].clientX - pairedTouch.x;
+      const dy = event.touches[0].clientY - pairedTouch.y;
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy)) return;
+      const shift = Math.sign(dx) * Math.min(Math.abs(dx), 90);
+      pairedTouch.row.style.transition = "none";
+      pairedTouch.row.style.transform = `translateX(${shift}px)`;
+      pairedTouch.row.dataset.swipe = Math.abs(dx) > 60 ? (dx > 0 ? "rename" : "remove") : "";
+    }, { passive: true });
+    const resetPairedRow = row => {
+      row.style.transition = "transform .25s ease";
+      row.style.transform = "";
+      delete row.dataset.swipe;
+    };
+    elPairedList.addEventListener("touchend", event => {
+      if (!pairedTouch || event.changedTouches.length !== 1) { if (pairedTouch) resetPairedRow(pairedTouch.row); pairedTouch = null; return; }
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - pairedTouch.x;
+      const dy = touch.clientY - pairedTouch.y;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        const device = btDevices.paired.get(pairedTouch.row.dataset.addr);
+        if (device) {
+          suppressPairedClick = true;
+          if (dx > 0) openBtRename(device);
+          else {
+            const status = pairedTouch.row.querySelector(".status");
+            status.textContent = lang === "en" ? "Remove in head unit Bluetooth" : "Удалите в Bluetooth магнитолы";
+            status.className = "status";
+            setTimeout(() => { if (sheetOpen) renderBtLists(); }, 4000);
+          }
+        }
+      }
+      resetPairedRow(pairedTouch.row);
+      pairedTouch = null;
+    }, { passive: true });
+    elPairedList.addEventListener("touchcancel", () => { if (pairedTouch) resetPairedRow(pairedTouch.row); pairedTouch = null; });
+    elPairedList.addEventListener("click", event => {
+      if (suppressPairedClick) { suppressPairedClick = false; event.preventDefault(); event.stopPropagation(); return; }
+      onBtItemClick(event);
+    });
+    elFoundList.addEventListener("click", onBtItemClick);
+
+    const PREVIEW_DEVICES = {
+      paired: [["A1:B2:C3:D4:E5:01", "iPhone"], ["A1:B2:C3:D4:E5:02", "Galaxy S24"]],
+      found: [["A1:B2:C3:D4:E5:03", "Pixel 9"], ["A1:B2:C3:D4:E5:04", "JBL Flip 6"]]
+    };
+    function previewDevices(list) {
+      PREVIEW_DEVICES[list].forEach(([addr, name], i) => {
+        setTimeout(() => addBtDevice({ list, addr, name }), 300 + i * 500);
+      });
+      if (list === "found") setTimeout(() => setDiscovering(false), 2000);
+    }
+
+    function openSheet() {
+      sheetOpen = true;
+      elSheet.classList.add("open");
+      elSheet.setAttribute("aria-hidden", "false");
+      // сопряжённые прошивка присылает заново по запросу, по одному
+      btDevices.paired.clear();
+      renderBtLists();
+      sendFytCommand("BT_PAIRED");
+      if (!inApp) previewDevices("paired");
+    }
+
+    let btRenameTarget = null;
+    const elBtRenameSheet = document.getElementById("btRenameSheet");
+    const elBtRenameInput = document.getElementById("btRenameInput");
+    function openBtRename(dev) {
+      btRenameTarget = dev;
+      elBtRenameInput.value = btAliases.get(aliasKey(dev.addr))?.alias || dev.name;
+      elBtRenameSheet.classList.add("open");
+      elBtRenameSheet.setAttribute("aria-hidden", "false");
+      elSheet.setAttribute("aria-hidden", "true");
+      elBtRenameInput.focus();
+      elBtRenameInput.select();
+    }
+    function closeBtRename() {
+      const addr = btRenameTarget?.addr;
+      btRenameTarget = null;
+      elBtRenameSheet.classList.remove("open");
+      elBtRenameSheet.setAttribute("aria-hidden", "true");
+      elSheet.setAttribute("aria-hidden", "false");
+      const row = Array.from(elPairedList.querySelectorAll(".bt-item")).find(item => item.dataset.addr === addr);
+      row?.querySelector(".bt-rename")?.focus();
+    }
+    document.getElementById("btnCloseBtRename").addEventListener("click", closeBtRename);
+    document.getElementById("btRenameForm").addEventListener("submit", e => {
+      e.preventDefault();
+      if (!btRenameTarget) return;
+      const alias = elBtRenameInput.value.trim();
+      const key = aliasKey(btRenameTarget.addr);
+      if (alias && alias !== btRenameTarget.name) btAliases.set(key, { alias, original: btRenameTarget.name });
+      else btAliases.delete(key);
+      saveBtAliases();
+      renderBtLists();
+      closeBtRename();
+      renderPhone();
+    });
+
+    function closeSheet() {
+      if (btRenameTarget) closeBtRename();
+      sheetOpen = false;
+      elSheet.classList.remove("open");
+      elSheet.setAttribute("aria-hidden", "true");
+      if (discovering) {
+        sendFytCommand("BT_DISCOVER", "0");
+        setDiscovering(false);
+      }
+    }
+
+    elDeviceBtn.addEventListener("click", openSheet);
+    document.getElementById("btnCloseSheet").addEventListener("click", closeSheet);
+
+    elBtnDiscover.addEventListener("click", () => {
+      const on = !discovering;
+      if (on) btDevices.found.clear();
+      setDiscovering(on);
+      sendFytCommand("BT_DISCOVER", on ? "1" : "0");
+      if (on && !inApp) previewDevices("found");
+    });
+
+    function renderAutoResume(on) {
+      state.autoResume = on;
+      elBtnAutoResume.setAttribute("aria-checked", String(on));
+    }
+    elBtnAutoResume.addEventListener("click", () => {
+      renderAutoResume(!state.autoResume);
+      sendFytCommand("AUTO_RESUME", state.autoResume ? "1" : "0");
+    });
+
+    // --- VIEW NAVIGATION ---
+    const elCarView = document.getElementById("carPanelView");
+    const elSetupView = document.getElementById("setupGuideView");
+    const elSimulator = document.getElementById("headUnitSimulator");
+    const elNavMock = document.getElementById("navMockPane");
+    const elBtnViewCar = document.getElementById("btnViewCar");
+    const elBtnViewSetup = document.getElementById("btnViewSetup");
+
+    let settingsOpen = false;
+    let fontSheetOpen = false;
+    let activeFontGroup = "main";
+    const elFontSheet = document.getElementById("fontSheet");
+    const elFontOptions = document.getElementById("fontOptions");
+    function renderFontValues() {
+      document.getElementById("mainFontValue").textContent = mainFont;
+      document.getElementById("monoFontValue").textContent = monoFont;
+    }
+    function setFont(group, font) {
+      const options = group === "main" ? mainFonts : monoFonts;
+      if (!options.includes(font)) return;
+      if (group === "main") mainFont = font; else monoFont = font;
+      writeSetting(group === "main" ? "mainFont" : "monoFont", font);
+      document.documentElement.style.setProperty(group === "main" ? "--font-main" : "--font-mono", `"${font}"`);
+      renderFontValues();
+      renderFontOptions();
+    }
+    function renderFontOptions() {
+      const options = activeFontGroup === "main" ? mainFonts : monoFonts;
+      const current = activeFontGroup === "main" ? mainFont : monoFont;
+      elFontOptions.replaceChildren();
+      options.forEach(font => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "font-option";
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-checked", String(font === current));
+        button.tabIndex = font === current ? 0 : -1;
+        const label = document.createElement("span");
+        label.textContent = font;
+        label.style.fontFamily = `"${font}", ${activeFontGroup === "main" ? "sans-serif" : "monospace"}`;
+        button.append(label);
+        if (font === current) {
+          const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          check.setAttribute("viewBox", "0 0 24 24");
+          check.setAttribute("fill", "none");
+          check.setAttribute("stroke", "currentColor");
+          check.setAttribute("stroke-width", "2");
+          check.setAttribute("aria-hidden", "true");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", "m5 12 4 4L19 6");
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("stroke-linejoin", "round");
+          check.append(path); button.append(check);
+        }
+        button.addEventListener("click", () => { setFont(activeFontGroup, font); elFontOptions.querySelector('[aria-checked="true"]').focus(); });
+        elFontOptions.append(button);
+      });
+    }
+    function openFontSheet(group) {
+      activeFontGroup = group;
+      const title = group === "main" ? tr("Основной шрифт", "Main font") : tr("Шрифт таймингов", "Timing font");
+      document.getElementById("fontSheetTitle").textContent = title;
+      elFontOptions.setAttribute("aria-label", title);
+      renderFontOptions();
+      fontSheetOpen = true;
+      elFontSheet.classList.add("open");
+      elFontSheet.setAttribute("aria-hidden", "false");
+      elSetupView.setAttribute("aria-hidden", "true");
+      document.getElementById("btnCloseFont").focus();
+    }
+    function closeFontSheet() {
+      fontSheetOpen = false;
+      elFontSheet.classList.remove("open");
+      elFontSheet.setAttribute("aria-hidden", "true");
+      elSetupView.setAttribute("aria-hidden", "false");
+      document.getElementById(activeFontGroup === "main" ? "btnMainFont" : "btnMonoFont").focus();
+    }
+    document.getElementById("btnMainFont").addEventListener("click", () => openFontSheet("main"));
+    document.getElementById("btnMonoFont").addEventListener("click", () => openFontSheet("mono"));
+    document.getElementById("btnCloseFont").addEventListener("click", closeFontSheet);
+    elFontOptions.addEventListener("keydown", e => {
+      if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(e.key)) return;
+      e.preventDefault();
+      const options = activeFontGroup === "main" ? mainFonts : monoFonts;
+      const current = activeFontGroup === "main" ? mainFont : monoFont;
+      const delta = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1;
+      setFont(activeFontGroup, options[(options.indexOf(current) + delta + options.length) % options.length]);
+      elFontOptions.querySelector('[aria-checked="true"]').focus();
+    });
+    renderFontValues();
+    let weatherSheetOpen = false;
+    const elWeatherSheet = document.getElementById("weatherSheet");
+    function closeWeatherSheet() {
+      weatherSheetOpen = false;
+      elWeatherSheet.classList.remove("open");
+      elWeatherSheet.setAttribute("aria-hidden", "true");
+      elSetupView.setAttribute("aria-hidden", "false");
+      document.getElementById("weatherOptions").focus();
+    }
+    document.getElementById("weatherOptions").addEventListener("click", () => {
+      weatherSheetOpen = true;
+      elWeatherSheet.classList.add("open");
+      elWeatherSheet.setAttribute("aria-hidden", "false");
+      elSetupView.setAttribute("aria-hidden", "true");
+      document.getElementById("btnCloseWeather").focus();
+    });
+    document.getElementById("btnCloseWeather").addEventListener("click", closeWeatherSheet);
+    function showCarPanel() {
+      if (weatherSheetOpen) closeWeatherSheet();
+      if (fontSheetOpen) closeFontSheet();
+      settingsOpen = false;
+      elSetupView.classList.remove("open");
+      elSetupView.setAttribute("aria-hidden", "true");
+    }
+    function showSetupPanel() {
+      if (sheetOpen) closeSheet();
+      if (voltSheetOpen) closeVoltSheet();
+      settingsOpen = true;
+      elSetupView.classList.add("open");
+      elSetupView.setAttribute("aria-hidden", "false");
+      document.getElementById("btnBackToCar").focus();
+    }
+    elBtnViewCar.addEventListener("click", showCarPanel);
+    elBtnViewSetup.addEventListener("click", showSetupPanel);
+    elClockHM.addEventListener("click", showSetupPanel);
+    document.getElementById("btnBackToCar").addEventListener("click", () => { showCarPanel(); elClockHM.focus(); });
+    refreshWeather();
+    try {
+      if (sessionStorage.getItem("openSettingsAfterLanguage") === "1") {
+        sessionStorage.removeItem("openSettingsAfterLanguage");
+        showSetupPanel();
+      }
+    } catch (e) {}
+
+    const btnPreviewFull = document.getElementById("btnPreviewFull");
+    btnPreviewFull.addEventListener("click", () => {
+      if (state.splitPreview) document.getElementById("btnTogglePreviewFrame").click();
+      const full = document.documentElement.classList.toggle("preview-full");
+      btnPreviewFull.setAttribute("aria-pressed", String(full));
+      btnPreviewFull.textContent = full ? tr("Обычный размер", "Panel size") : tr("Полный экран", "Full screen");
+      showCarPanel();
+    });
+    document.getElementById("btnTogglePreviewFrame").addEventListener("click", () => {
+      if (document.documentElement.classList.contains("preview-full")) btnPreviewFull.click();
+      state.splitPreview = !state.splitPreview;
+      if (state.splitPreview) {
+        showCarPanel();
+        elSimulator.classList.remove("max-w-[384px]");
+        elSimulator.classList.add("max-w-5xl");
+        elNavMock.classList.remove("hidden");
+        elNavMock.classList.add("flex");
+        elCarView.classList.remove("w-full");
+        elCarView.classList.add("w-[30%]");
+      } else {
+        elSimulator.classList.add("max-w-[384px]");
+        elSimulator.classList.remove("max-w-5xl");
+        elNavMock.classList.add("hidden");
+        elNavMock.classList.remove("flex");
+        elCarView.classList.add("w-full");
+        elCarView.classList.remove("w-[30%]");
+      }
+    });
+
+    document.getElementById("btnApplyTestTrack").addEventListener("click", () => {
+      const title = document.getElementById("inputTestTitle").value.trim() || "Без названия";
+      const artist = document.getElementById("inputTestArtist").value.trim() || "Неизвестный исполнитель";
+      window.updateBluetoothMetadata({
+        title: title,
+        artist: artist,
+        duration: 225,
+        position: 18,
+        playing: true
+      });
+      showCarPanel();
+    });
+
+    if (lang === "en") {
+      const translations = {
+        "Плеер":"Player", "Полный экран":"Full screen", "Обычный размер":"Panel size", "Настройки":"Settings", "Открыть настройки":"Open settings", "Назад":"Back",
+        "Экран":"Display", "Шрифты":"Fonts", "Основной шрифт":"Main font", "Шрифт таймингов":"Timing font", "Тема":"Theme", "Ночной режим":"Night mode", "По времени":"By time", "По фарам":"Headlights",
+        "С":"From", "До":"To", "Начало ночного режима":"Night mode start", "Конец ночного режима":"Night mode end",
+        "Zen-режим":"Zen mode", "Музыка":"Music", "Обложки":"Album art", "Текст песни":"Lyrics", "Показать текст песни":"Show lyrics", "Есть текст песни":"Lyrics available", "Общие":"General", "Погода":"Weather", "Язык":"Language",
+        "Местоположение":"Location", "Для погоды":"For weather", "Или выберите город":"Or choose a city", "Использовать геолокацию":"Use current location", "Геолокация":"Use location", "Указать город":"Enter a city", "Источник:":"Source:", "Текущее местоположение":"Current location", "По текущему местоположению":"Use current location", "Разрешить геолокацию":"Allow location access", "Или укажите город":"Or enter a city", "Название города":"City name", "Например, Казань…":"For example, Kazan…",
+        "Open-Meteo использует местоположение и интернет.":"Open-Meteo uses your location and internet connection.",
+        "Предпросмотр":"Preview", "Пропустить":"Skip", "Далее":"Next", "Приложение":"App", "Проверять обновления":"Check for updates automatically", "Как пользоваться":"How to use", "Название трека":"Track title", "Исполнитель":"Artist", "Обновить трек":"Update track",
+        "Bluetooth":"Bluetooth", "Имя устройства":"Device name", "Имя в приложении":"Name in this app", "Название изменится только в этом приложении.":"The name changes only in this app.", "Сохранить":"Save", "Сопряжённые":"Paired devices", "Поблизости":"Nearby", "Найти":"Find", "Остановить":"Stop",
+        "Продолжать музыку после запуска машины":"Resume music after starting the car", "Подключить телефон":"Connect phone",
+        "Телефон подключён":"Phone connected", "Нет сопряжённых устройств":"No paired devices", "Ищем устройства…":"Searching for devices…",
+        "Нажмите «Найти», чтобы увидеть новые устройства":"Tap Find to search for new devices", "Подключение…":"Connecting…", "Не удалось":"Failed", "Подключено":"Connected",
+        "Напряжение":"Voltage", "Минимум":"Minimum", "Максимум":"Maximum", "В пути":"Trip", "До зарядки":"Before charging", "При зарядке":"Charging",
+        "сейчас":"now", "Нет данных от прошивки":"No data from head unit", "Нет свежих данных":"No recent data",
+        "Высокое напряжение":"High voltage", "Низкое напряжение":"Low voltage", "Перезаряд":"High voltage", "Идёт зарядка":"Charging", "Зарядки нет":"Not charging", "Аккумулятор разряжен":"Low battery voltage",
+        "График появится через пару минут поездки, когда прошивка пришлёт несколько значений.":"The chart appears after a few voltage readings.",
+        "До зарядки: последнее значение ниже 13 V до первого значения выше 13.5 V. Это ориентир, а не диагностика АКБ.":"Before charging: the last reading below 13 V before the first reading above 13.5 V. This is not a battery diagnosis.",
+        "Связь с прошивкой пропала: показаны последние полученные значения.":"Connection lost. Showing the last received readings.",
+        "Предыдущий трек":"Previous track", "Следующий трек":"Next track", "Воспроизведение / Пауза":"Play / Pause", "Полоса громкости":"Volume",
+        "Слушать Bluetooth":"Listen to Bluetooth", "Радио":"Radio", "Ожидание трека":"Waiting for a track", "Без названия":"Untitled", "Неизвестный исполнитель":"Unknown artist",
+        "Левая часть экрана (70%)":"Left side of screen (70%)", "Навигация · 70%":"Navigation · 70%", "Прибытие":"Arrival",
+        "Напряжение бортовой сети":"Car voltage", "Заряд телефона":"Phone battery", "График напряжения за поездку":"Trip voltage chart"
+      };
+      function translateNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          if (node.parentElement && node.parentElement.closest("#trackText, #clockDateStr")) return;
+          const original = node.nodeValue, trimmed = original.trim(), replacement = translations[trimmed];
+          if (replacement && replacement !== trimmed) node.nodeValue = original.replace(trimmed, replacement);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          for (const attr of ["aria-label", "placeholder"]) {
+            const value = node.getAttribute(attr);
+            if (translations[value]) node.setAttribute(attr, translations[value]);
+          }
+          node.childNodes.forEach(translateNode);
+        }
+      }
+      translateNode(document.body);
+      new MutationObserver(records => records.forEach(record => {
+        if (record.type === "characterData") translateNode(record.target);
+        else record.addedNodes.forEach(translateNode);
+      })).observe(document.body, { childList: true, characterData: true, subtree: true });
+    }
+
+    // --- ОБУЧЕНИЕ: при первом запуске и из настроек ---
+    const ART = {
+      panel: '<rect x="14" y="30" width="92" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="5"/><path d="M76 30h20a10 10 0 0 1 10 10v40a10 10 0 0 1-10 10H76z" fill="currentColor"/><path d="M84 56v8M91 50v20M98 54v12" stroke="var(--bg-base)" stroke-width="4" stroke-linecap="round"/>',
+      swipe: '<path d="M18 60h84M30 48 18 60l12 12M90 48l12 12-12 12" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="60" cy="60" r="11" fill="currentColor"/>',
+      volume: '<rect x="14" y="78" width="92" height="20" rx="10" fill="none" stroke="currentColor" stroke-width="4"/><rect x="18" y="82" width="52" height="12" rx="6" fill="currentColor"/><path d="M44 52V22M76 52V22M36 30l8-8 8 8M68 30l8-8 8 8" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>',
+      lyrics: '<rect x="14" y="32" width="48" height="48" rx="9" fill="currentColor"/><path d="M74 42h32M74 74h20" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M74 58h32" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>',
+      clock: '<circle cx="60" cy="60" r="40" fill="none" stroke="currentColor" stroke-width="5"/><path d="M60 36v24l16 10" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>'
+    };
+    const ONBOARDING_STEPS = [
+      { art: "panel", title: tr("Это Dashphonic", "This is Dashphonic"),
+        text: tr("Музыка, часы и погода рядом с картой.", "Music, clock and weather next to your map.") },
+      { art: "swipe", title: tr("Треки", "Tracks"),
+        text: tr("Свайп влево включает следующий трек, вправо предыдущий. Двойное касание ставит паузу.", "Swipe left for the next track, right for the previous one. Double-tap to pause.") },
+      { art: "volume", title: tr("Громкость", "Volume"),
+        text: tr("Проведите двумя пальцами вверх или вниз. Громкость также можно изменить полосой внизу.", "Swipe up or down with two fingers. You can also use the volume bar at the bottom.") },
+      { art: "lyrics", title: tr("Текст песни", "Lyrics"),
+        text: tr("Если текст доступен, коснитесь обложки, чтобы его открыть. Маленькая обложка вернёт плеер.", "When lyrics are available, tap the cover to open them. Tap the small cover to return.") },
+      { art: "clock", title: tr("Настройки", "Settings"),
+        text: tr("Нажмите на часы, чтобы открыть настройки. Строка телефона внизу открывает Bluetooth.", "Tap the clock for settings. The phone row at the bottom opens Bluetooth.") }
+    ];
+    const elOnboarding = document.getElementById("onboarding");
+    const btnOnboardingNext = document.getElementById("btnOnboardingNext");
+    let onboardingOpen = false, onboardingIndex = 0;
+    function renderOnboarding() {
+      const step = ONBOARDING_STEPS[onboardingIndex];
+      document.getElementById("onboardingStep").textContent = `${onboardingIndex + 1} / ${ONBOARDING_STEPS.length}`;
+      document.getElementById("onboardingArt").innerHTML = `<svg viewBox="0 0 120 120">${ART[step.art]}</svg>`;
+      document.getElementById("onboardingTitle").textContent = step.title;
+      document.getElementById("onboardingText").textContent = step.text;
+      btnOnboardingNext.textContent = onboardingIndex === ONBOARDING_STEPS.length - 1 ? tr("Начать", "Start") : tr("Далее", "Next");
+    }
+    function openOnboarding() {
+      showCarPanel();
+      if (sheetOpen) closeSheet();
+      if (voltSheetOpen) closeVoltSheet();
+      onboardingOpen = true;
+      onboardingIndex = 0;
+      renderOnboarding();
+      elOnboarding.classList.add("open");
+      elOnboarding.setAttribute("aria-hidden", "false");
+      btnOnboardingNext.focus();
+    }
+    function closeOnboarding() {
+      writeSetting("onboardingDone", "1");
+      onboardingOpen = false;
+      elOnboarding.classList.remove("open");
+      elOnboarding.setAttribute("aria-hidden", "true");
+      elClockHM.focus();
+    }
+    btnOnboardingNext.addEventListener("click", () => {
+      if (onboardingIndex === ONBOARDING_STEPS.length - 1) return closeOnboarding();
+      onboardingIndex++;
+      renderOnboarding();
+    });
+    document.getElementById("btnOnboardingSkip").addEventListener("click", closeOnboarding);
+    document.getElementById("btnTutorial").addEventListener("click", openOnboarding);
+    if (readSetting("onboardingDone", "") !== "1") openOnboarding();
+
+    // --- 1-SECOND CLOCK & PROGRESS LOOP ---
+    updateClock();
+    renderPhone();
+    renderPlayer();
+    setInterval(() => {
+      // панель свёрнута или закрыта другим приложением: перерисуем всё, когда вернётся
+      if (document.hidden) return;
+      syncTripClock();
+      updateClock();
+      if (state.themeMode === "auto" && nightRule === "time") applyThemeMode();
+      if (fresh.voltGap) renderFreshness();
+      if (voltSheetOpen && Date.now() % 5000 < 1000) renderVoltSheet();
+      kickProgress();
+
+    }, 1000);
+    // 10 кадров в секунду хватает и полосе, и строкам текста; на паузе цикл стоит, его будит renderPlayer
+    function kickProgress() {
+      if (progressTimer) return;
+      progressTimer = -1;
+      requestAnimationFrame(animateProgress);
+    }
+    function animateProgress() {
+      progressTimer = 0;
+      if (document.hidden) return;
+      const playing = !isRadio() && state.isPlaying;
+      if (playing) {
+        const track = demoTracks[state.trackIndex];
+        const position = currentPosition();
+        if (!inApp && track.duration > 0 && position >= track.duration) {
+          state.trackIndex = (state.trackIndex + 1) % demoTracks.length;
+          state.elapsedSec = 0; progressAnchor = performance.now(); renderPlayer();
+        } else drawProgress(track.duration > 0 ? Math.min(position, track.duration) : position, track.duration);
+      }
+      if (lyricRows.length) renderLyrics();
+      if (playing) progressTimer = setTimeout(() => requestAnimationFrame(animateProgress), 100);
+    }
+    kickProgress();
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (onboardingOpen) closeOnboarding();
+      else if (btRenameTarget) closeBtRename();
+      else if (fontSheetOpen) closeFontSheet();
+      else if (weatherSheetOpen) closeWeatherSheet();
+      else if (settingsOpen) showCarPanel();
+      else if (voltSheetOpen) closeVoltSheet();
+      else if (sheetOpen) closeSheet();
+    });
+
+    // Предпросмотр в браузере: поездка 47 минут с просадкой при запуске двигателя
+    if (!inApp) {
+      const start = Date.now() - 47 * 60000;
+      trip = newTrip(start);
+      trip.activeFrom = start;
+      for (let i = 0; i < 141; i++) {
+        const v = i === 0 ? 12.5 : i === 1 ? 10.4 : i < 20 ? 14.4 - i * 0.02 : 13.9 + Math.sin(i / 7) * 0.12;
+        trip.bins.push([start + i * TRIP_BIN_MS, v, v, v]);
+      }
+      window.fytPatch({ carVoltageRaw: 135, outTempRaw: 1000 - 40 });
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) { syncTripClock(); updateClock(); renderPlayer(); maybeCheckUpdate(); }
+    });
+  </script>
+</body>
+</html>
