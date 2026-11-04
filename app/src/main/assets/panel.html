@@ -131,6 +131,7 @@
     /* Появление и исчезновение без смены раскладки: место под элемент остаётся */
     .reserve { transition: opacity 0.25s ease, visibility 0.25s; }
     .reserve.off { opacity: 0; visibility: hidden; pointer-events: none; }
+    #progressWrap { transition: opacity .25s ease, visibility .25s, margin-top .75s cubic-bezier(.45,0,.55,1); }
 
     #trackArtist { min-height: 28px; }
 
@@ -441,7 +442,7 @@
     .onboarding-top { display: flex; align-items: center; justify-content: space-between; min-height: 48px; margin-top: -12px; }
     .onboarding-step { font-size: 13px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .onboarding-art { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; color: var(--text-primary); }
-    .onboarding-art svg { width: 132px; height: 132px; }
+    .onboarding-art svg, .onboarding-art img { width: 132px; height: 132px; }
     .onboarding-title { text-wrap: balance; margin: 0 0 10px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
     .onboarding-text { margin: 0 0 28px; min-height: 5.6em; font-size: 16px; line-height: 1.4; color: var(--text-secondary); }
     .onboarding-next { width: 100%; height: 56px; flex-shrink: 0; font-size: 17px; font-weight: 600; }
@@ -490,6 +491,13 @@
       color: var(--text-muted);
     }
     .bt-list { display: flex; flex-direction: column; overflow-x: hidden; }
+    .bt-swipe-row { position: relative; overflow: hidden; }
+    .bt-swipe-row .bt-item { position: relative; background: var(--bg-base); }
+    .bt-swipe-action { position: absolute; top: 0; bottom: 0; width: 64px; display: grid; place-items: center; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+    .bt-swipe-action svg { width: 22px; height: 22px; }
+    .bt-swipe-action.rename { left: 0; color: var(--text-primary); }
+    .bt-swipe-action.remove { right: 0; color: #ef4444; }
+    .bt-swipe-row[data-swipe="rename"] .bt-swipe-action.rename, .bt-swipe-row[data-swipe="remove"] .bt-swipe-action.remove { opacity: 1; }
     .bt-item {
       display: flex;
       align-items: center;
@@ -512,8 +520,6 @@
     .rename-input { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-surface); color: var(--text-primary); user-select: text; }
     .rename-save { min-height: 48px; padding: 0 16px; border-radius: 10px; background: var(--play-bg); color: var(--play-fg); font-weight: 600; }
     .rename-note { font-size: 12px; line-height: 1.4; color: var(--text-secondary); }
-    .bt-item[data-swipe="rename"] { box-shadow: inset 4px 0 0 var(--text-secondary); }
-    .bt-item[data-swipe="remove"] { box-shadow: inset -4px 0 0 #ef4444; }
     .bt-item .status { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); }
     .bt-item .status.ok { color: #22c55e; }
     .bt-item .status.err { color: #ef4444; }
@@ -526,7 +532,7 @@
     .media-expanded .panel-track { flex: 1 1 auto; min-height: 0; margin: 0 auto; width: 100%; padding-top: 14px; padding-bottom: 4px; }
     .media-expanded #sourceRow.off { display: none; }
     .media-expanded .track-block { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
-    .cover-slot { flex: 1 1 0; min-height: 0; max-height: 0; margin-bottom: 0; container-type: size; display: flex; align-items: center; justify-content: center; opacity: 0; transform: scale(.92); transition: max-height .6s cubic-bezier(.2,.8,.2,1), margin .6s cubic-bezier(.2,.8,.2,1), opacity .45s ease, transform .6s cubic-bezier(.2,.8,.2,1); }
+    .cover-slot { flex: 1 1 0; min-height: 0; max-height: 0; margin-bottom: 0; container-type: size; display: flex; align-items: center; justify-content: center; opacity: 0; transform: scale(.92); transition: max-height .9s cubic-bezier(.45,0,.55,1), margin .9s cubic-bezier(.45,0,.55,1), opacity .8s ease, transform .9s cubic-bezier(.45,0,.55,1); }
     .cover-slot.visible { max-height: 520px; margin-bottom: 20px; opacity: 1; transform: none; }
     .cover-button { position: relative; display: block; width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); overflow: hidden; padding: 0; border-radius: 12px; background: var(--bg-surface, #1c1c22); box-shadow: 0 18px 40px rgba(0,0,0,.34); }
     /* С обложкой часы уходят в одну строку с датой: место отдаётся обложке, время остаётся читаемым */
@@ -561,7 +567,7 @@
     .lyrics-head-text { min-width: 0; }
     .lyrics-head-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 17px; font-weight: 600; line-height: 1.25; }
     .lyrics-head-artist { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--text-secondary); margin-top: 2px; }
-    .lyrics-view { flex: 1 1 0; min-height: 120px; overflow: hidden; mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); }
+    .lyrics-view { position: relative; flex: 1 1 0; min-height: 120px; overflow: hidden; mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); }
     .lyrics-lines { padding-top: 8px; transition: transform .7s cubic-bezier(.22,.9,.24,1); }
     .lyric-line { color: var(--text-primary); opacity: .26; font-size: 25px; line-height: 1.22; font-weight: 700; letter-spacing: -.012em; margin: 0 0 18px; transform: scale(.94); transform-origin: left center; transition: opacity .45s ease, transform .6s cubic-bezier(.22,.9,.24,1); overflow-wrap: anywhere; }
     .lyric-line.past { opacity: .16; }
@@ -570,8 +576,9 @@
     .lyric-dots i { width: 9px; height: 9px; border-radius: 50%; background: currentColor; opacity: .3; transition: opacity .3s ease; }
     .lyric-dots.active i.on { opacity: 1; }
     /* значок в конце строки исполнителя: тише самого имени, но читается; касание открывает текст, как и касание обложки */
-    .artist-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .artist-row #trackArtist { flex: 1 1 auto; min-width: 0; }
+    #trackTitle { transition: font-size .75s cubic-bezier(.45,0,.55,1); }
+    .artist-row { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 10px; transition: margin-top .75s cubic-bezier(.45,0,.55,1); }
+    .artist-row #trackArtist { flex: 1 1 auto; min-width: 0; margin-top: 0; transition: font-size .75s cubic-bezier(.45,0,.55,1); }
     .lyrics-indicator { flex: none; width: 44px; height: 44px; margin: -12px -12px -12px 0; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
     .lyrics-indicator.hidden { display: none; }
     .lyrics-indicator svg { width: 18px; height: 18px; }
@@ -588,7 +595,7 @@
       .cover-slot.visible { margin-bottom: 12px; }
       .lyric-line { font-size: 21px; margin-bottom: 12px; }
     }
-    @media (prefers-reduced-motion: reduce) { .cover-slot, .cover-button, .cover-wash, .lyrics-lines, .lyric-line, #clockHoursMins, .volume-slot, .volume-dock, .volume-dock > .relative, #volValueLabel { transition: none !important; } .cover-fade { animation: none !important; display: none !important; } .cover-wash.entering { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .cover-slot, .cover-button, .cover-wash, .lyrics-lines, .lyric-line, #clockHoursMins, #trackTitle, #trackArtist, .artist-row, #progressWrap, .volume-slot, .volume-dock, .volume-dock > .relative, #volValueLabel { transition: none !important; } .cover-fade { animation: none !important; display: none !important; } .cover-wash.entering { animation: none; } }
     .bt-empty { padding: 14px 2px; font-size: 13px; color: var(--text-muted); }
 
     .switch-row {
@@ -632,9 +639,10 @@
 
     .battery { height: 16px; }
     .battery::after { top: 5.5px; }
-    #clockHoursMins { cursor: pointer; text-align: left; }
+    #clockHoursMins { cursor: pointer; text-align: left; transform-origin: top left; }
     #clockHoursMins:focus-visible, .setting-row:focus-visible, .sheet-back:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
     .panel-top, .panel-track, .panel-controls { width: 100%; max-width: 520px; margin-left: auto; margin-right: auto; }
+    .panel-top { position: relative; }
     .settings-content { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding-bottom: 24px; touch-action: pan-y; }
     #hudVolumeBar { transition: width 75ms linear; }
     .setting-row { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border-subtle); text-align: left; font-size: 15px; }
@@ -1887,61 +1895,197 @@
     const lyricsIndicator = document.getElementById("lyricsIndicator");
     const MEDIA_PLACEHOLDER_TITLES = ["Bluetooth", "Без названия", "Untitled"];
     const MEDIA_PLACEHOLDER_ARTISTS = ["Ожидание трека", "Waiting for a track"];
-    let mediaSignature = "", mediaRequestId = 0, mediaTimer = null, coverTimer = null, coverStaleTimer = null, lyricsStaleTimer = null, collapseTimer = null;
-    let coverPresent = false, coverSrc = "", coverRequest = 0, pendingCover = "", lyricRows = [], lyricIntro = false, lyricActive = -2, lyricsOpen = false, lyricsPending = false;
+    let mediaSignature = "", mediaRequestId = 0, mediaTimer = null, coverTimer = null, coverStaleTimer = null, lyricsStaleTimer = null, collapseTimer = null, coverRevealTimer = null;
+    let coverPresent = false, coverSrc = "", coverRequest = 0, pendingCover = "", artPending = false, lyricRows = [], lyricIntro = false, lyricActive = -2, lyricsOpen = false, lyricsPending = false;
     const layoutAnimations = new Map();
 
-    function setMediaExpanded(expanded) {
-      if (elPanelView.classList.contains("media-expanded") === expanded) return;
-      const items = Array.from(elPanelView.querySelectorAll(".panel-top > .flex, .clock-row"));
+    function setCoverSlotVisible(visible) {
+      if (coverSlot.classList.contains("visible") === visible) return;
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        coverSlot.style.removeProperty("max-height");
+        coverSlot.classList.toggle("visible", visible);
+        return;
+      }
+      const currentHeight = coverSlot.getBoundingClientRect().height;
+      if (visible) {
+        coverSlot.style.transition = "none";
+        coverSlot.style.removeProperty("max-height");
+        coverSlot.classList.add("visible");
+        const targetHeight = getComputedStyle(coverSlot).maxHeight;
+        coverSlot.classList.remove("visible");
+        coverSlot.style.maxHeight = `${currentHeight}px`;
+        void coverSlot.offsetHeight;
+        coverSlot.style.removeProperty("transition");
+        coverSlot.classList.add("visible");
+        coverSlot.style.maxHeight = targetHeight;
+      } else {
+        coverSlot.style.transition = "none";
+        coverSlot.style.maxHeight = `${currentHeight}px`;
+        void coverSlot.offsetHeight;
+        coverSlot.style.removeProperty("transition");
+        coverSlot.classList.remove("visible");
+        coverSlot.style.maxHeight = "0px";
+      }
+    }
+    coverSlot.addEventListener("transitionend", event => {
+      if (event.target === coverSlot && event.propertyName === "max-height") coverSlot.style.removeProperty("max-height");
+    });
+
+    function setMediaExpanded(expanded, applyContent) {
+      if (elPanelView.classList.contains("media-expanded") === expanded) return applyContent?.();
+      const panelTop = elPanelView.querySelector(".panel-top");
+      const clock = document.getElementById("clockHoursMins");
+      const items = Array.from(elPanelView.querySelectorAll(".panel-top > .flex, #clockHoursMins, #outTemp, .panel-track, #trackText, #progressWrap, .panel-controls"));
+      const topHeight = panelTop.getBoundingClientRect().height;
       const before = items.map(el => el.getBoundingClientRect());
-      items.forEach(el => { layoutAnimations.get(el)?.cancel(); layoutAnimations.delete(el); });
+      [panelTop, ...items].forEach(el => { layoutAnimations.get(el)?.cancel(); layoutAnimations.delete(el); });
+      panelTop.querySelector(".row-ghost")?.remove();
+      // Строка даты перестраивается (над часами ↔ справа от них, в одну строку ↔ в две): старую форму гасит копия на старом месте,
+      // иначе вольтаж на новой второй строке на мгновение ложится на часы
+      const row = panelTop.querySelector(":scope > .flex");
+      const topRect = panelTop.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const ghost = row.cloneNode(true);
+      ghost.classList.add("row-ghost");
+      ghost.removeAttribute("id");
+      ghost.querySelectorAll("[id]").forEach(el => el.removeAttribute("id"));
+      Object.assign(ghost.style, { position: "absolute", left: `${rowRect.left - topRect.left}px`, top: `${rowRect.top - topRect.top}px`, width: `${rowRect.width}px`, margin: "0", pointerEvents: "none" });
+      ghost.inert = true;
+      // после смены класса правила .media-expanded к копии уже не относятся: раскладку старой формы фиксируем вручную
+      const rowStyle = getComputedStyle(row);
+      Object.assign(ghost.style, { display: rowStyle.display, flexWrap: rowStyle.flexWrap, rowGap: rowStyle.rowGap, columnGap: rowStyle.columnGap, justifyContent: rowStyle.justifyContent, alignItems: rowStyle.alignItems });
+      Array.from(row.children).forEach((child, n) => { ghost.children[n].style.flexBasis = getComputedStyle(child).flexBasis; });
+      // Измеряем конечную высоту с окончательным размером часов, а не промежуточным кадром CSS-перехода.
+      clock.style.transition = "none";
       elPanelView.classList.toggle("media-expanded", expanded);
+      applyContent?.();
+      const targetHeight = panelTop.getBoundingClientRect().height;
+      void clock.offsetWidth;
+      clock.style.removeProperty("transition");
       if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      panelTop.append(ghost);
+      const ghostAnimation = ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: "ease-out", fill: "forwards" });
+      ghostAnimation.onfinish = ghostAnimation.oncancel = () => ghost.remove();
+      if (Math.abs(topHeight - targetHeight) > 1) {
+        const heightAnimation = panelTop.animate([{ height: `${topHeight}px` }, { height: `${targetHeight}px` }], { duration: 750, easing: "cubic-bezier(.45,0,.55,1)", fill: "backwards" });
+        layoutAnimations.set(panelTop, heightAnimation);
+        heightAnimation.onfinish = () => { if (layoutAnimations.get(panelTop) === heightAnimation) layoutAnimations.delete(panelTop); };
+      }
       items.forEach((el, i) => {
         const after = el.getBoundingClientRect();
+        // появившийся или скрытый элемент не двигаем: у него нет одной из позиций, он проявляется или гаснет сам
+        if (!before[i].width || !after.width) return;
         const x = before[i].left - after.left, y = before[i].top - after.top;
-        if (!x && !y) return;
-        const animation = el.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: "translate(0, 0)" }], { duration: 500, easing: "cubic-bezier(.2,.8,.2,1)" });
+        // Температура меняет font-size скачком, без масштаба она на первом кадре уже конечного размера рядом с крупными часами
+        const scaled = (el === clock || el.id === "outTemp") && after.width && after.height;
+        const scaleX = scaled ? (el === clock ? before[i].width / after.width : before[i].height / after.height) : 1;
+        const scaleY = scaled ? before[i].height / after.height : 1;
+        if (!x && !y && scaleX === 1 && scaleY === 1) return;
+        const transform = k => `translate(${x * (1 - k)}px, ${y * (1 - k)}px) scale(${1 + (scaleX - 1) * (1 - k)}, ${1 + (scaleY - 1) * (1 - k)})`;
+        const frames = el === row
+          ? [{ opacity: 0, offset: 0 }, { opacity: 0, offset: .45 }, { opacity: 1, offset: 1 }]
+          : [{ transform: transform(0) }, { transform: transform(1) }];
+        if (el.id === "outTemp") frames.forEach(frame => { frame.transformOrigin = "0 0"; });
+        const animation = el.animate(frames, { duration: 750, easing: "cubic-bezier(.45,0,.55,1)", fill: "backwards" });
         layoutAnimations.set(el, animation);
         animation.onfinish = () => { if (layoutAnimations.get(el) === animation) layoutAnimations.delete(el); };
       });
     }
 
-    function updateMediaView() {
+    // пока ищется текст нового трека, экран текста остаётся на месте: иначе панель схлопнется и раскроется обратно
+    // текст часто приходит раньше, чем обложка загрузится: без ожидания экран текста мелькнул бы перед обложкой
+    function lyricsWanted(wasLyrics) {
+      return !zenEnabled && lyricsEnabled && (lyricRows.length > 0 || (lyricsPending && wasLyrics)) && ((!coverPresent && (wasLyrics || !(artPending || pendingCover))) || lyricsOpen);
+    }
+
+    // Смена «название трека ⇄ экран текста»: старое содержимое сначала гаснет на месте, затем меняется раскладка и проявляется новое.
+    // Без паузы новое содержимое появлялось бы в старой раскладке и ехало вместе с ней.
+    const MEDIA_SWAP_OUT = 200;
+    let mediaSwapTimer = null, mediaSwapOut = [];
+    function updateMediaView(immediate = false) {
+      if (mediaSwapTimer) {
+        // во время угасания новые данные просто дождутся общего применения
+        if (!immediate) return;
+        clearTimeout(mediaSwapTimer);
+        mediaSwapTimer = null;
+      } else if (!immediate && !document.hidden && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        const wasLyrics = elPanelView.classList.contains("lyrics-mode");
+        const outgoing = wasLyrics !== lyricsWanted(wasLyrics) ? (wasLyrics ? [lyricsHead, lyricsView] : [elTrackText]).filter(el => el.getClientRects().length) : [];
+        if (outgoing.length) {
+          mediaSwapOut = outgoing.map(el => el.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-6px)" }], { duration: MEDIA_SWAP_OUT, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }));
+          mediaSwapTimer = setTimeout(() => { mediaSwapTimer = null; applyMediaView(false); }, MEDIA_SWAP_OUT);
+          return;
+        }
+      }
+      applyMediaView(immediate);
+    }
+
+    function fadeInContent(elements, delay) {
+      elements.forEach((el, i) => el.animate([{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }],
+        { duration: 480, delay: delay + i * 70, easing: "cubic-bezier(.4,0,.2,1)", fill: "backwards" }));
+    }
+
+    function applyMediaView(manual) {
+      const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
       const wasLyrics = elPanelView.classList.contains("lyrics-mode");
-      // пока ищется текст нового трека, экран текста остаётся на месте: иначе панель схлопнется и раскроется обратно
-      const showLyrics = !zenEnabled && lyricsEnabled && (lyricRows.length > 0 || (lyricsPending && wasLyrics)) && (!coverPresent || lyricsOpen);
+      const showLyrics = lyricsWanted(wasLyrics);
       const expanded = !zenEnabled && (coverPresent || showLyrics);
+      const track = demoTracks[state.trackIndex];
+      const headTitle = document.getElementById("lyricsHeadTitle");
+      const headChanged = showLyrics && wasLyrics && headTitle.textContent !== track.title;
+      // содержимое меняется внутри setMediaExpanded между замерами: конечные позиции считаются уже для нового содержимого
+      let contentApplied = false;
+      const applyContent = () => {
+        if (contentApplied) return;
+        contentApplied = true;
+        elPanelView.classList.toggle("lyrics-mode", showLyrics);
+        lyricsHead.classList.toggle("hidden", !showLyrics);
+        lyricsView.classList.toggle("hidden", !showLyrics);
+        elTrackText.classList.toggle("hidden", showLyrics);
+        coverMini.classList.toggle("hidden", !coverPresent);
+        if (showLyrics) {
+          setText(headTitle, track.title);
+          setText(document.getElementById("lyricsHeadArtist"), track.artist);
+        }
+      };
       // media-expanded ставим до .visible: слот растёт из нуля уже во flex-раскладке, и плеер плавно уезжает вниз
       clearTimeout(collapseTimer);
-      if (expanded) setMediaExpanded(true);
+      if (expanded && !elPanelView.classList.contains("media-expanded") && !reduced) {
+        setMediaExpanded(true, applyContent);
+        if (coverPresent && !zenEnabled && !showLyrics) {
+          coverRevealTimer = setTimeout(() => {
+            coverRevealTimer = null;
+            setCoverSlotVisible(coverPresent && !zenEnabled && !elPanelView.classList.contains("lyrics-mode"));
+          }, 750);
+        }
+      } else if (expanded) setMediaExpanded(true, applyContent);
       else if (elPanelView.classList.contains("media-expanded")) {
-        if (matchMedia("(prefers-reduced-motion: reduce)").matches) setMediaExpanded(false);
-        else collapseTimer = setTimeout(() => setMediaExpanded(false), 600);
+        // ждать стоит только сжатия обложки; после экрана текста панель сворачивается сразу, одним движением
+        if (reduced || !coverSlot.classList.contains("visible")) setMediaExpanded(false, applyContent);
+        else collapseTimer = setTimeout(() => setMediaExpanded(false), 900);
       }
-      elPanelView.classList.toggle("lyrics-mode", showLyrics);
+      applyContent();
+      mediaSwapOut.splice(0).forEach(animation => animation.cancel());
+      if (!manual && !reduced) {
+        if (showLyrics !== wasLyrics) fadeInContent(showLyrics ? [lyricsHead, lyricsView] : [elTrackText], 120);
+        else if (headChanged) fadeInContent([lyricsHead.querySelector(".lyrics-head-text")], 0);
+      }
       // состояние читается в момент кадра: отложенный кадр от прошлого трека не должен спрятать обложку нового
-      requestAnimationFrame(() => coverSlot.classList.toggle("visible", coverPresent && !zenEnabled && !elPanelView.classList.contains("lyrics-mode")));
-      lyricsHead.classList.toggle("hidden", !showLyrics);
-      lyricsView.classList.toggle("hidden", !showLyrics);
-      elTrackText.classList.toggle("hidden", showLyrics);
-      coverMini.classList.toggle("hidden", !coverPresent);
-      if (showLyrics) {
-        const track = demoTracks[state.trackIndex];
-        setText(document.getElementById("lyricsHeadTitle"), track.title);
-        setText(document.getElementById("lyricsHeadArtist"), track.artist);
-      }
+      if (!coverPresent || zenEnabled || showLyrics) { clearTimeout(coverRevealTimer); coverRevealTimer = null; }
+      requestAnimationFrame(() => {
+        const visible = coverPresent && !zenEnabled && !elPanelView.classList.contains("lyrics-mode");
+        if (!visible || (elPanelView.classList.contains("media-expanded") && !coverRevealTimer)) setCoverSlotVisible(visible);
+      });
       lyricsIndicator.classList.toggle("hidden", !(!zenEnabled && coverPresent && lyricsEnabled && lyricRows.length > 0));
       lyricsIndicator.setAttribute("aria-label", lang === "en" ? "Show lyrics" : "Показать текст песни");
       coverButton.setAttribute("aria-label", !lyricRows.length ? (lang === "en" ? "Album art" : "Обложка") : (lang === "en" ? "Show lyrics" : "Показать текст песни"));
       coverMini.setAttribute("aria-label", lang === "en" ? "Hide lyrics" : "Скрыть текст песни");
-      if (showLyrics && !wasLyrics && !lyricsOpen) { lyricsView.classList.remove("fade-in"); void lyricsView.offsetWidth; lyricsView.classList.add("fade-in"); }
       if (showLyrics) renderLyrics(true);
     }
 
     function setCover(value) {
       clearTimeout(coverStaleTimer);
+      artPending = false;
       value = artworkEnabled ? value || "" : "";
       if (value && value === pendingCover) return;
       const request = ++coverRequest;
@@ -1971,7 +2115,8 @@
           document.querySelectorAll(".cover-fade").forEach(el => el.remove());
           coverWash.classList.remove("entering");
           if (coverPresent && coverSrc && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-            [coverImage, coverMiniImage, coverWash].forEach(el => {
+            // в скрытом элементе анимация не идёт: копия старой обложки дождалась бы показа и мелькнула при открытии текста
+            [coverImage, coverMiniImage, coverWash].filter(el => el.getClientRects().length).forEach(el => {
               const old = el.cloneNode(false);
               old.removeAttribute("id");
               old.setAttribute("aria-hidden", "true");
@@ -2020,6 +2165,20 @@
     }
     new ResizeObserver(() => renderLyrics(true)).observe(lyricsView);
 
+    // строки прошлого трека гаснут копией: сами строки очищаются сразу, чтобы прокрутка и подсветка начались с нуля
+    function fadeOutLyricsLines() {
+      lyricsView.querySelector(".lyrics-ghost")?.remove();
+      if (!lyricsLines.childElementCount || !lyricsView.getClientRects().length || document.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const ghost = lyricsLines.cloneNode(true);
+      ghost.removeAttribute("id");
+      ghost.classList.add("lyrics-ghost");
+      ghost.inert = true;
+      Object.assign(ghost.style, { position: "absolute", left: "0", right: "0", top: "0", pointerEvents: "none", transition: "none" });
+      lyricsView.append(ghost);
+      const animation = ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, easing: "ease-in", fill: "forwards" });
+      animation.onfinish = animation.oncancel = () => ghost.remove();
+    }
+
     function scheduleMedia(force = false) {
       const track = demoTracks[state.trackIndex];
       const title = (track.title || "").trim(), artist = (track.artist || "").trim();
@@ -2032,10 +2191,12 @@
       clearTimeout(coverStaleTimer);
       if (previewAbort) { previewAbort.abort(); previewAbort = null; if (previewPendingKey) previewMediaCache.delete(previewPendingKey); previewPendingKey = ""; }
       if (pendingCover) { ++coverRequest; pendingCover = ""; clearTimeout(coverTimer); }
+      fadeOutLyricsLines();
       lyricRows = []; lyricIntro = false; lyricActive = -2; lyricsLines.replaceChildren(); lyricsLines.style.transform = "";
       const eligible = !zenEnabled && !isRadio() && state.phoneConnected && title && artist && !MEDIA_PLACEHOLDER_TITLES.includes(title) && !MEDIA_PLACEHOLDER_ARTISTS.includes(artist);
       // старая обложка держится, пока не придёт ответ по новому треку, чтобы панель не прыгала вверх-вниз
       lyricsPending = eligible && lyricsEnabled;
+      artPending = eligible && artworkEnabled;
       clearTimeout(lyricsStaleTimer);
       if (lyricsPending) lyricsStaleTimer = setTimeout(() => { if (id === mediaRequestId && lyricsPending) { lyricsPending = false; updateMediaView(); } }, 8000);
       if (!eligible || !artworkEnabled) setCover("");
@@ -2150,6 +2311,8 @@
           nodes.unshift(dots);
         }
         lyricsLines.replaceChildren(...nodes);
+        // на экране текста новые строки проявляются на месте ушедших, а не возникают рывком
+        if (nodes.length && lyricsView.getClientRects().length && !matchMedia("(prefers-reduced-motion: reduce)").matches) lyricsLines.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: "ease-out" });
         lyricActive = -2;
         updateMediaView();
       }
@@ -2171,7 +2334,7 @@
       const from = (open ? coverButton : coverMini).getBoundingClientRect();
       lyricsOpen = open;
       coverSlot.classList.add("instant");
-      updateMediaView();
+      updateMediaView(true);
       coverSlot.classList.toggle("visible", !open);
       const target = open ? coverMini : coverButton;
       const to = target.getBoundingClientRect();
@@ -2763,7 +2926,13 @@
           edit.addEventListener("click", event => { event.stopPropagation(); openBtRename(dev); });
           row.append(edit);
         }
-        el.append(row);
+        if (map === btDevices.paired) {
+          const swipeRow = document.createElement("div");
+          swipeRow.className = "bt-swipe-row";
+          swipeRow.innerHTML = '<span class="bt-swipe-action rename" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z"/></svg></span><span class="bt-swipe-action remove" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></span>';
+          swipeRow.append(row);
+          el.append(swipeRow);
+        } else el.append(row);
       }
     }
 
@@ -2816,52 +2985,69 @@
       if (!inApp) setTimeout(() => window.fytPatch({ phoneConnected: true, phoneName: dev.name }), 1200);
     }
     let pairedTouch = null;
+    let pairedMouse = null;
     let suppressPairedClick = false;
-    elPairedList.addEventListener("touchstart", event => {
-      const row = event.target.closest(".bt-item");
-      if (!row || event.touches.length !== 1) { pairedTouch = null; return; }
-      const touch = event.touches[0];
-      pairedTouch = { row, x: touch.clientX, y: touch.clientY };
-      suppressPairedClick = false;
-    }, { passive: true });
-    // строка едет за пальцем, чтобы было видно, что свайп распознан и куда он ведёт
-    elPairedList.addEventListener("touchmove", event => {
-      if (!pairedTouch || event.touches.length !== 1) return;
-      const dx = event.touches[0].clientX - pairedTouch.x;
-      const dy = event.touches[0].clientY - pairedTouch.y;
-      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy)) return;
-      const shift = Math.sign(dx) * Math.min(Math.abs(dx), 90);
-      pairedTouch.row.style.transition = "none";
-      pairedTouch.row.style.transform = `translateX(${shift}px)`;
-      pairedTouch.row.dataset.swipe = Math.abs(dx) > 60 ? (dx > 0 ? "rename" : "remove") : "";
-    }, { passive: true });
+    const previewRemovedDevices = new Set();
     const resetPairedRow = row => {
       row.style.transition = "transform .25s ease";
       row.style.transform = "";
-      delete row.dataset.swipe;
+      delete row.parentElement.dataset.swipe;
     };
-    elPairedList.addEventListener("touchend", event => {
-      if (!pairedTouch || event.changedTouches.length !== 1) { if (pairedTouch) resetPairedRow(pairedTouch.row); pairedTouch = null; return; }
-      const touch = event.changedTouches[0];
-      const dx = touch.clientX - pairedTouch.x;
-      const dy = touch.clientY - pairedTouch.y;
-      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        const device = btDevices.paired.get(pairedTouch.row.dataset.addr);
-        if (device) {
-          suppressPairedClick = true;
-          if (dx > 0) openBtRename(device);
-          else {
-            const status = pairedTouch.row.querySelector(".status");
-            status.textContent = lang === "en" ? "Remove in head unit Bluetooth" : "Удалите в Bluetooth магнитолы";
-            status.className = "status";
-            setTimeout(() => { if (sheetOpen) renderBtLists(); }, 4000);
-          }
+    function movePairedSwipe(gesture, x, y) {
+      const dx = x - gesture.x, dy = y - gesture.y;
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy)) return;
+      gesture.row.style.transition = "none";
+      gesture.row.style.transform = `translateX(${Math.sign(dx) * Math.min(Math.abs(dx), 90)}px)`;
+      gesture.row.parentElement.dataset.swipe = dx > 0 ? "rename" : "remove";
+    }
+    function finishPairedSwipe(gesture, x, y) {
+      const dx = x - gesture.x, dy = y - gesture.y;
+      const device = btDevices.paired.get(gesture.row.dataset.addr);
+      if (device && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        suppressPairedClick = true;
+        if (dx > 0) openBtRename(device);
+        else if (inApp) {
+          window.alert(lang === "en" ? "Remove this device in the head unit's Bluetooth settings." : "Удалите устройство в настройках Bluetooth магнитолы.");
+        } else if (window.confirm(lang === "en" ? `Remove ${deviceName(device)} from the preview?` : `Удалить ${deviceName(device)} из предпросмотра?`)) {
+          previewRemovedDevices.add(device.addr);
+          btDevices.paired.delete(device.addr);
+          renderBtLists();
         }
       }
-      resetPairedRow(pairedTouch.row);
+      resetPairedRow(gesture.row);
+    }
+    elPairedList.addEventListener("touchstart", event => {
+      const row = event.target.closest(".bt-item");
+      if (!row || event.touches.length !== 1) { pairedTouch = null; return; }
+      pairedTouch = { row, x: event.touches[0].clientX, y: event.touches[0].clientY };
+      suppressPairedClick = false;
+    }, { passive: true });
+    elPairedList.addEventListener("touchmove", event => {
+      if (pairedTouch && event.touches.length === 1) movePairedSwipe(pairedTouch, event.touches[0].clientX, event.touches[0].clientY);
+    }, { passive: true });
+    elPairedList.addEventListener("touchend", event => {
+      if (!pairedTouch) return;
+      if (event.changedTouches.length === 1) finishPairedSwipe(pairedTouch, event.changedTouches[0].clientX, event.changedTouches[0].clientY);
+      else resetPairedRow(pairedTouch.row);
       pairedTouch = null;
     }, { passive: true });
     elPairedList.addEventListener("touchcancel", () => { if (pairedTouch) resetPairedRow(pairedTouch.row); pairedTouch = null; });
+    if (!inApp) {
+      elPairedList.addEventListener("pointerdown", event => {
+        if (event.pointerType !== "mouse" || event.button !== 0) return;
+        const row = event.target.closest(".bt-item");
+        if (!row) return;
+        pairedMouse = { row, x: event.clientX, y: event.clientY };
+        suppressPairedClick = false;
+      });
+      window.addEventListener("pointermove", event => { if (pairedMouse) movePairedSwipe(pairedMouse, event.clientX, event.clientY); });
+      window.addEventListener("pointerup", event => {
+        if (!pairedMouse) return;
+        finishPairedSwipe(pairedMouse, event.clientX, event.clientY);
+        pairedMouse = null;
+      });
+      elPairedList.addEventListener("pointercancel", () => { if (pairedMouse) resetPairedRow(pairedMouse.row); pairedMouse = null; });
+    }
     elPairedList.addEventListener("click", event => {
       if (suppressPairedClick) { suppressPairedClick = false; event.preventDefault(); event.stopPropagation(); return; }
       onBtItemClick(event);
@@ -2874,7 +3060,7 @@
     };
     function previewDevices(list) {
       PREVIEW_DEVICES[list].forEach(([addr, name], i) => {
-        setTimeout(() => addBtDevice({ list, addr, name }), 300 + i * 500);
+        setTimeout(() => { if (!previewRemovedDevices.has(addr)) addBtDevice({ list, addr, name }); }, 300 + i * 500);
       });
       if (list === "found") setTimeout(() => setDiscovering(false), 2000);
     }
@@ -3178,21 +3364,23 @@
 
     // --- ОБУЧЕНИЕ: при первом запуске и из настроек ---
     const ART = {
-      panel: '<rect x="14" y="30" width="92" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="5"/><path d="M76 30h20a10 10 0 0 1 10 10v40a10 10 0 0 1-10 10H76z" fill="currentColor"/><path d="M84 56v8M91 50v20M98 54v12" stroke="var(--bg-base)" stroke-width="4" stroke-linecap="round"/>',
       swipe: '<path d="M18 60h84M30 48 18 60l12 12M90 48l12 12-12 12" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="60" cy="60" r="11" fill="currentColor"/>',
       volume: '<rect x="14" y="78" width="92" height="20" rx="10" fill="none" stroke="currentColor" stroke-width="4"/><rect x="18" y="82" width="52" height="12" rx="6" fill="currentColor"/><path d="M44 52V22M76 52V22M36 30l8-8 8 8M68 30l8-8 8 8" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>',
       lyrics: '<rect x="14" y="32" width="48" height="48" rx="9" fill="currentColor"/><path d="M74 42h32M74 74h20" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><path d="M74 58h32" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>',
+      voltage: '<path d="M25 34h70v52H25zM43 26v8M77 26v8M36 55h14M43 48v14M70 55h14" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M35 76l14-6 12 4 12-7 12 4" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
       clock: '<circle cx="60" cy="60" r="40" fill="none" stroke="currentColor" stroke-width="5"/><path d="M60 36v24l16 10" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>'
     };
     const ONBOARDING_STEPS = [
-      { art: "panel", title: tr("Это Dashphonic", "This is Dashphonic"),
-        text: tr("Музыка, часы и погода рядом с картой.", "Music, clock and weather next to your map.") },
+      { art: "logo", title: tr("Это Dashphonic", "This is Dashphonic"),
+        text: tr("Музыка, часы и погода на экране магнитолы.", "Music, clock and weather on your head unit.") },
       { art: "swipe", title: tr("Треки", "Tracks"),
         text: tr("Свайп влево включает следующий трек, вправо предыдущий. Двойное касание ставит паузу.", "Swipe left for the next track, right for the previous one. Double-tap to pause.") },
       { art: "volume", title: tr("Громкость", "Volume"),
         text: tr("Проведите двумя пальцами вверх или вниз. Громкость также можно изменить полосой внизу.", "Swipe up or down with two fingers. You can also use the volume bar at the bottom.") },
       { art: "lyrics", title: tr("Текст песни", "Lyrics"),
         text: tr("Если текст доступен, коснитесь обложки, чтобы его открыть. Маленькая обложка вернёт плеер.", "When lyrics are available, tap the cover to open them. Tap the small cover to return.") },
+      { art: "voltage", title: tr("Напряжение", "Voltage"),
+        text: tr("Нажмите на напряжение, чтобы открыть график за текущую поездку.", "Tap the voltage to see a chart for the current trip.") },
       { art: "clock", title: tr("Настройки", "Settings"),
         text: tr("Нажмите на часы, чтобы открыть настройки. Строка телефона внизу открывает Bluetooth.", "Tap the clock for settings. The phone row at the bottom opens Bluetooth.") }
     ];
@@ -3202,7 +3390,9 @@
     function renderOnboarding() {
       const step = ONBOARDING_STEPS[onboardingIndex];
       document.getElementById("onboardingStep").textContent = `${onboardingIndex + 1} / ${ONBOARDING_STEPS.length}`;
-      document.getElementById("onboardingArt").innerHTML = `<svg viewBox="0 0 120 120">${ART[step.art]}</svg>`;
+      document.getElementById("onboardingArt").innerHTML = step.art === "logo"
+        ? '<img src="dashphonic-icon.png" alt="">'
+        : `<svg viewBox="0 0 120 120">${ART[step.art]}</svg>`;
       document.getElementById("onboardingTitle").textContent = step.title;
       document.getElementById("onboardingText").textContent = step.text;
       btnOnboardingNext.textContent = onboardingIndex === ONBOARDING_STEPS.length - 1 ? tr("Начать", "Start") : tr("Далее", "Next");

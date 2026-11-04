@@ -1,6 +1,6 @@
 # Dashphonic
 
-A music player and clock for the 30% side panel of FYT head units. It shows what your phone plays over Bluetooth, next to the map.
+A Bluetooth music panel and clock for FYT head units. Dashphonic is designed to work well in a side panel.
 
 [Русская версия](README.ru.md)
 
@@ -29,12 +29,16 @@ The app id is `com.ava.car`. FYT firmware sends media broadcasts only to a white
 
 1. Download `dashphonic-X.Y.Z.apk` from [Releases](../../releases/latest).
 2. Copy it to a USB stick or open the link in the head unit browser, then install it. Android will ask to allow installs from that source.
-3. Open the split screen and put Dashphonic in the right 30%.
+3. Open Dashphonic on its own or in a split-screen panel.
 4. A short tutorial runs on first launch. You can run it again from Settings → How to use.
 
 Later updates arrive in the app: Settings → App shows the installed version and installs a new one. Automatic checks run at most twice a day and can be turned off.
 
 If a previous build has a different signing key or a higher Android version code, Android will require you to uninstall it before installing this release. Uninstalling removes the app’s local settings and history.
+
+## Using Dashphonic
+
+Swipe left or right to change tracks and double-tap to pause. Adjust volume with two fingers or the bar at the bottom. Tap the voltage reading, when available, to open the current trip chart. Tap the clock for settings.
 
 ## Privacy
 

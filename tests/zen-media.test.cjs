@@ -17,7 +17,7 @@ test('zen cancels pending work and exiting requests enabled media again', () => 
     pendingCover: 'old', coverRequest: 0, previewAbort: { abort() { aborts++; } }, previewPendingKey: 'old', previewMediaCache: new Map([['old', 1]]),
     lyricRows: [], lyricIntro: false, lyricActive: 0, lyricsPending: true, lyricsLines: { replaceChildren() {}, style: {} },
     MEDIA_PLACEHOLDER_TITLES: [], MEDIA_PLACEHOLDER_ARTISTS: [],
-    setCover(value) { calls.push(['cover', value]); }, updateMediaView() {},
+    setCover(value) { calls.push(['cover', value]); }, updateMediaView() {}, fadeOutLyricsLines() {},
     inApp: true, sendFytCommand(kind) { calls.push([kind]); },
     setTimeout(fn) { if (!c.zenEnabled && fn.toString().includes('sendFytCommand')) fn(); return 1; }, clearTimeout() {},
   };

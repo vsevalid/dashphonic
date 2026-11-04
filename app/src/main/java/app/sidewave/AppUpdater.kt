@@ -143,7 +143,8 @@ class AppUpdater(private val activity: Activity, private val deliver: (JSONObjec
     @Suppress("DEPRECATION")
     private fun isOwnUpdate(file: File): Boolean {
         val pm = activity.packageManager
-        val archive = pm.getPackageArchiveInfo(file.path, PackageManager.GET_SIGNING_CERTIFICATES) ?: return false
+        // Android 9–10 читает подписи файла APK только при GET_SIGNATURES, без него signingInfo приходит null
+        val archive = pm.getPackageArchiveInfo(file.path, PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES) ?: return false
         if (archive.packageName != activity.packageName) return false
         val incoming = archive.signingInfo?.apkContentsSigners ?: return false
         val installed = pm.getPackageInfo(activity.packageName, PackageManager.GET_SIGNING_CERTIFICATES).signingInfo?.apkContentsSigners ?: return false
