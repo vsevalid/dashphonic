@@ -126,7 +126,12 @@ class FytIpcBridge(
     private val handler = Handler(Looper.getMainLooper())
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private var serviceBound = false
+    @Volatile private var serviceBound = false
+    @Volatile private var serviceConnected = false
+    @Volatile private var registrationComplete = false
+    @Volatile private var registrationPoint: String? = null
+    @Volatile private var lastServiceError: String? = null
+    @Volatile private var lastCallbackAt = 0L
     private var mainModule: IRemoteModule? = null
     private var radioModule: IRemoteModule? = null
     private var btModule: IRemoteModule? = null
@@ -144,7 +149,7 @@ class FytIpcBridge(
     private var accOn: Boolean? = null
 
     private var sourceRetriesLeft = 0
-    private var playWhenBtSource = false
+    private val pendingBtCommands = ArrayDeque<Pair<Int, Int>>()
     private var resumeDeadline = 0L
 
     // Последние сырые значения по коду: для отладки через WebView devtools (FytBridge.debugState)
@@ -263,26 +268,37 @@ class FytIpcBridge(
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            serviceConnected = true
+            registrationComplete = false
+            lastServiceError = null
             try {
+                if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Service connected: $name descriptor=${service?.interfaceDescriptor}")
                 val toolkit = IRemoteToolkit.Stub.asInterface(service)
                 mainModule = toolkit.getRemoteModule(MODULE_MAIN)
                 radioModule = toolkit.getRemoteModule(MODULE_RADIO)
                 btModule = toolkit.getRemoteModule(MODULE_BT)
                 soundModule = toolkit.getRemoteModule(MODULE_SOUND)
+                if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Modules main=${mainModule != null} radio=${radioModule != null} bt=${btModule != null} sound=${soundModule != null}")
                 // update=1: сервис сразу присылает текущее значение, не дожидаясь изменения
-                MAIN_CODES.forEach { mainModule?.register(mainCallback, it, 1) }
-                MAIN_PROBE_CODES.forEach { mainModule?.register(mainProbeCallback, it, 1) }
-                RADIO_CODES.forEach { radioModule?.register(radioCallback, it, 1) }
-                BT_CODES.forEach { btModule?.register(btCallback, it, 1) }
-                BT_LIST_CODES.forEach { btModule?.register(btCallback, it, 0) }
-                SOUND_CODES.forEach { soundModule?.register(soundCallback, it, 1) }
+                MAIN_CODES.forEach { registrationPoint = "main.$it"; mainModule?.register(mainCallback, it, 1) }
+                MAIN_PROBE_CODES.forEach { registrationPoint = "main.$it"; mainModule?.register(mainProbeCallback, it, 1) }
+                RADIO_CODES.forEach { registrationPoint = "radio.$it"; radioModule?.register(radioCallback, it, 1) }
+                BT_CODES.forEach { registrationPoint = "bt.$it"; btModule?.register(btCallback, it, 1) }
+                BT_LIST_CODES.forEach { registrationPoint = "bt.$it"; btModule?.register(btCallback, it, 0) }
+                SOUND_CODES.forEach { registrationPoint = "sound.$it"; soundModule?.register(soundCallback, it, 1) }
+                registrationComplete = true
+                if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Callback registration complete")
                 onPatch(JSONObject().put("fyt", true))
             } catch (e: RemoteException) {
-                Log.e(TAG, "Ошибка регистрации в com.syu.ms", e)
+                lastServiceError = e.javaClass.simpleName
+                Log.e(TAG, "Ошибка регистрации в com.syu.ms at $registrationPoint", e)
             }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            serviceConnected = false
+            registrationComplete = false
+            if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.w(TAG, "Service disconnected: $name")
             mainModule = null
             radioModule = null
             btModule = null
@@ -295,6 +311,7 @@ class FytIpcBridge(
         onPatch(JSONObject().put("autoResume", autoResumeEnabled()))
         val intent = Intent("com.syu.ms.toolkit").setPackage("com.syu.ms")
         serviceBound = context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "bindService accepted=$serviceBound")
         if (!serviceBound) {
             onPatch(JSONObject().put("fyt", false))
             Log.w(TAG, "Сервис com.syu.ms недоступен, кнопки уйдут медиа-клавишами")
@@ -322,31 +339,33 @@ class FytIpcBridge(
     // включает и выключает его, а «вперёд/назад» переключают станции
     private fun radioActive() = appId == APP_ID_RADIO && radioModule != null
 
-    fun play() = if (radioActive()) radioCmd(C_RADIO_POWER, 1) else playBt()
-
-    fun pause() = if (radioActive()) radioCmd(C_RADIO_POWER, 0) else btCmd(C_BTAV_PAUSE, KeyEvent.KEYCODE_MEDIA_PAUSE)
-
-    fun nextTrack() {
-        if (radioActive()) return radioCmd(C_RADIO_NEXT_CHANNEL)
-        requestBtSource()
-        btCmd(C_BTAV_NEXT, KeyEvent.KEYCODE_MEDIA_NEXT)
+    fun play() = handler.post {
+        if (radioActive()) radioCmd(C_RADIO_POWER, 1)
+        else requestBtCommand(C_BTAV_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY)
     }
 
-    fun prevTrack() {
-        if (radioActive()) return radioCmd(C_RADIO_PREV_CHANNEL)
-        requestBtSource()
-        btCmd(C_BTAV_PREV, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+    fun pause() = handler.post {
+        pendingBtCommands.clear()
+        handler.removeCallbacks(retrySource)
+        sourceRetriesLeft = 0
+        if (radioActive()) radioCmd(C_RADIO_POWER, 0)
+        else btCmd(C_BTAV_PAUSE, KeyEvent.KEYCODE_MEDIA_PAUSE)
+    }
+
+    fun nextTrack() = handler.post {
+        if (radioActive()) radioCmd(C_RADIO_NEXT_CHANNEL)
+        else requestBtCommand(C_BTAV_NEXT, KeyEvent.KEYCODE_MEDIA_NEXT)
+    }
+
+    fun prevTrack() = handler.post {
+        if (radioActive()) radioCmd(C_RADIO_PREV_CHANNEL)
+        else requestBtCommand(C_BTAV_PREV, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
     }
 
     // Play идёт через источник BT: без него прошивка принимает команду, но звук не выводит,
     // пока стоковое приложение Bluetooth не открыто на вкладке музыки
-    fun playBt() {
-        if (btModule == null) {
-            dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
-            return
-        }
-        playWhenBtSource = true
-        requestBtSource()
+    fun playBt() = handler.post {
+        requestBtCommand(C_BTAV_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY)
     }
 
     fun queryPairedDevices() = btCmd(C_QUERY_PAIR, ints = intArrayOf(0))
@@ -376,11 +395,13 @@ class FytIpcBridge(
 
     private fun autoResumeEnabled() = prefs.getBoolean(PREF_AUTO_RESUME, true)
 
-    private fun requestBtSource() = handler.post {
-        if (appId == APP_ID_BTAV) {
-            onBtSourceReady()
-            return@post
+    private fun requestBtCommand(code: Int, fallbackKey: Int) {
+        if (btModule == null || appId == APP_ID_BTAV) {
+            btCmd(code, fallbackKey)
+            return
         }
+        pendingBtCommands.addLast(code to fallbackKey)
+        if (sourceRetriesLeft > 0) return
         sourceRetriesLeft = SOURCE_RETRIES
         handler.removeCallbacks(retrySource)
         retrySource.run()
@@ -388,7 +409,10 @@ class FytIpcBridge(
 
     private val retrySource: Runnable = object : Runnable {
         override fun run() {
-            if (appId == APP_ID_BTAV) return
+            if (appId == APP_ID_BTAV) {
+                onBtSourceReady()
+                return
+            }
             if (sourceRetriesLeft-- <= 0) {
                 // источник так и не подтвердился: всё равно пробуем запустить, хуже не будет
                 onBtSourceReady()
@@ -400,9 +424,12 @@ class FytIpcBridge(
     }
 
     private fun onBtSourceReady() {
-        if (!playWhenBtSource) return
-        playWhenBtSource = false
-        btCmd(C_BTAV_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY)
+        handler.removeCallbacks(retrySource)
+        sourceRetriesLeft = 0
+        while (pendingBtCommands.isNotEmpty()) {
+            val (code, fallbackKey) = pendingBtCommands.removeFirst()
+            btCmd(code, fallbackKey)
+        }
     }
 
     private fun onAccChanged(on: Boolean) {
@@ -411,7 +438,8 @@ class FytIpcBridge(
         if (!on) {
             handler.removeCallbacks(resumeWhenPhoneReady)
             handler.removeCallbacks(retrySource)
-            playWhenBtSource = false
+            pendingBtCommands.clear()
+            sourceRetriesLeft = 0
             resumeDeadline = 0L
             val recentlyPlaying = playing ||
                 SystemClock.elapsedRealtime() - playingStoppedAt < PLAYING_BEFORE_ACC_OFF_MS
@@ -497,10 +525,23 @@ class FytIpcBridge(
         if (patch.length() > 0) onPatch(patch)
     }
 
-    fun debugState(): String = JSONObject(raw as Map<*, *>).toString()
+    fun debugState(): String = JSONObject(raw as Map<*, *>)
+        .put("bridge", JSONObject()
+            .put("bound", serviceBound)
+            .put("connected", serviceConnected)
+            .put("registered", registrationComplete)
+            .put("registrationPoint", registrationPoint ?: JSONObject.NULL)
+            .put("main", mainModule != null)
+            .put("radio", radioModule != null)
+            .put("bt", btModule != null)
+            .put("sound", soundModule != null)
+            .put("lastError", lastServiceError ?: JSONObject.NULL)
+            .put("callbackAgeMs", if (lastCallbackAt > 0) SystemClock.elapsedRealtime() - lastCallbackAt else JSONObject.NULL))
+        .toString()
 
     private fun btCmd(code: Int, fallbackKey: Int? = null, ints: IntArray? = null, strs: Array<String>? = null) {
         val module = btModule
+        if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "BT command=$code module=${module != null}")
         if (module == null) {
             fallbackKey?.let { dispatchMediaKey(it) }
             return
@@ -519,6 +560,10 @@ class FytIpcBridge(
     }
 
     private fun remember(module: String, code: Int, ints: IntArray?, strs: Array<out String>?) {
+        lastCallbackAt = SystemClock.elapsedRealtime()
+        if ((BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) && module == "bt") {
+            Log.d(TAG, "BT callback=$code ints=${ints?.contentToString()} stringLengths=${strs?.map { it?.length ?: -1 }}")
+        }
         // строки (ID3, имена и адреса устройств) не храним: только длина, чтобы в дамп не попадали личные данные
         val strsJson = if (module == "bt" && code == U_PHONE_BATTERY) {
             JSONArray(strs?.toList() ?: emptyList<String>())

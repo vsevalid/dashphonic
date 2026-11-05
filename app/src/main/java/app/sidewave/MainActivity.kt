@@ -22,6 +22,8 @@ import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
+import android.webkit.ConsoleMessage
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -30,6 +32,10 @@ import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
+
+    private companion object {
+        const val TAG = "Dashphonic"
+    }
 
     private lateinit var webView: WebView
     private lateinit var fytBridge: FytIpcBridge
@@ -56,7 +62,11 @@ class MainActivity : AppCompatActivity() {
         // Не гасить экран во время движения
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        webView = WebView(this).apply {
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS)
+        if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) {
+            Log.d(TAG, "Create version=${BuildConfig.VERSION_NAME} sdk=${android.os.Build.VERSION.SDK_INT} display=${windowManager.defaultDisplay.displayId} component=${componentName.className}")
+        }
+        webView = LauncherWebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
@@ -68,15 +78,30 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                     pageReady = false
+                    if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "WebView loading assets")
                 }
                 override fun onPageFinished(view: WebView, url: String) {
                     pageReady = true
                     pushTheme(resources.configuration)
                     pushPatch(JSONObject().put("app", JSONObject().put("version", BuildConfig.VERSION_NAME).put("repo", BuildConfig.GITHUB_REPO)))
                     if (latestFytState.length() > 0) pushPatch(latestFytState)
+                    if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) {
+                        view.evaluateJavascript("JSON.stringify({patch:typeof window.fytPatch,theme:typeof window.setSystemTheme,bridge:typeof window.FytBridge,width:innerWidth,height:innerHeight})") {
+                            Log.d(TAG, "WebView ready: $it")
+                        }
+                    }
+                }
+
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.e(TAG, "WebView error=${error.errorCode} mainFrame=${request.isForMainFrame}: ${error.description}")
                 }
             }
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                    if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "JS ${message.messageLevel()} line=${message.lineNumber()}: ${message.message()}")
+                    return true
+                }
+            }
         }
         setContentView(webView)
         mediaLookup = MediaLookup(this) { result ->
@@ -128,7 +153,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             @JavascriptInterface
-            fun debugState(): String = fytBridge.debugState()
+            fun debugState(): String = JSONObject(fytBridge.debugState())
+                .put("app", JSONObject()
+                    .put("version", BuildConfig.VERSION_NAME)
+                    .put("debug", BuildConfig.DEBUG))
+                .toString()
         }, "FytBridge")
 
         // Загружаем локальный интерфейс из assets (100% офлайн)
@@ -307,6 +336,7 @@ class MainActivity : AppCompatActivity() {
     // uiMode в configChanges: активити не пересоздаётся, и prefers-color-scheme в WebView сам не обновится
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Configuration width=${newConfig.screenWidthDp} height=${newConfig.screenHeightDp} smallest=${newConfig.smallestScreenWidthDp}")
         if (pageReady) pushTheme(newConfig)
     }
 

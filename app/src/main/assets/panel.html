@@ -409,6 +409,8 @@
     .bt-sheet .sheet-row h3 { margin: 0; }
     .pill-btn:active { transform: scale(0.96); }
     .pill-btn:disabled { opacity: 0.45; }
+    /* Движение пальца по кнопке не должно превращать короткое нажатие в прокрутку WebView. */
+    #btnPrevTrack, #btnPlayPause, #btnNextTrack { touch-action: none; }
 
     .device-line {
       display: flex;
@@ -1126,6 +1128,8 @@
       radio: { freq: null, station: "", text: "", on: true }
     };
 
+    const playbackState = PanelLogic.createPlaybackState(state.isPlaying);
+    let playbackConfirmTimer = null;
     const SOURCE_RADIO = 1;
     const isRadio = () => state.source === SOURCE_RADIO;
 
@@ -2406,7 +2410,12 @@
       if ("title" in p || "artist" in p) track.rgb = rgbFromTitle(track.title + "\n" + track.artist);
       if ("durationSec" in p) track.duration = p.durationSec;
       if ("positionSec" in p) state.elapsedSec = p.positionSec;
-      if ("playing" in p) state.isPlaying = p.playing;
+      if ("playing" in p) state.isPlaying = playbackState.confirm(p.playing, performance.now());
+      if (p.phoneConnected === false) {
+        playbackState.reset(false);
+        state.isPlaying = false;
+        clearTimeout(playbackConfirmTimer);
+      }
       if ("volume" in p && !volumeGestureActive()) {
         state.volume = p.volume;
         if (p.volume > state.maxVolume) state.maxVolume = p.volume;
@@ -2553,13 +2562,10 @@
 
     carPanel.addEventListener("touchstart", (e) => {
       if (e.touches.length === 2 && !sheetOpen && !voltSheetOpen && !settingsOpen && !weatherSheetOpen && !fontSheetOpen && !onboardingOpen) {
-        e.preventDefault();
-        twoFingerUsed = true;
         dockStartX = null;
         elVolumeDock.classList.remove("dragging");
         twoFingerStartY = avgTouchY(e.touches);
         twoFingerStartVol = state.isMuted ? 0 : state.volume;
-        showVolumeHud();
       } else if (e.touches.length === 1) {
         twoFingerUsed = false;
       }
@@ -2567,9 +2573,14 @@
 
     carPanel.addEventListener("touchmove", (e) => {
       if (twoFingerStartY === null) return;
-      e.preventDefault();
       if (e.touches.length < 2) return;
       const deltaY = twoFingerStartY - avgTouchY(e.touches);
+      if (!twoFingerUsed && Math.abs(deltaY) < 12) return;
+      e.preventDefault();
+      if (!twoFingerUsed) {
+        twoFingerUsed = true;
+        showVolumeHud();
+      }
       const stepChange = Math.trunc(deltaY / PIXELS_PER_TWO_FINGER_STEP);
       setDampedGestureVolume(twoFingerStartVol, stepChange);
     }, { passive: false });
@@ -2577,45 +2588,50 @@
     function endTwoFinger(e) {
       if (twoFingerStartY === null || e.touches.length >= 2) return;
       twoFingerStartY = null;
-      scheduleHudHide();
+      if (twoFingerUsed) scheduleHudHide();
     }
     carPanel.addEventListener("touchend", endTwoFinger);
     // без touchcancel жест «залипал», и громкость от магнитолы переставала приходить на экран
     carPanel.addEventListener("touchcancel", endTwoFinger);
 
     carPanel.addEventListener("click", (e) => {
-      if (!twoFingerUsed) return;
+      if (!twoFingerUsed || e.detail === 0) return;
       e.stopPropagation();
       e.preventDefault();
     }, true);
 
-    let touchStart = null, lastTap = 0;
+    let touchStart = null, lastTap = null;
     carPanel.addEventListener("touchstart", (e) => {
       const target = e.target instanceof Element ? e.target : e.target.parentElement;
       if (e.touches.length !== 1 || settingsOpen || weatherSheetOpen || fontSheetOpen || sheetOpen || voltSheetOpen ||
           (target && target.closest("button:not(.cover-button), input, select, textarea, [role='slider'], .volume-slot, .bt-sheet"))) {
         touchStart = null;
-        lastTap = 0;
+        lastTap = null;
         return;
       }
       const t = e.touches[0];
-      // обложка занимает пол-панели: свайп по ней листает треки, а нажатие открывает текст и не считается тапом
-      touchStart = { x: t.clientX, y: t.clientY, time: Date.now(), onCover: Boolean(target && target.closest(".cover-button")) };
+      if (PanelLogic.isDoubleTap(lastTap, { x: t.clientX, y: t.clientY, time: performance.now() })) {
+        document.getElementById("btnPlayPause").click();
+        touchStart = null;
+        lastTap = null;
+        return;
+      }
+      // Обычный клик обложки открывает текст; свайп и двойное касание остаются жестами плеера.
+      touchStart = { x: t.clientX, y: t.clientY, time: performance.now() };
     }, { passive: true });
     carPanel.addEventListener("touchend", (e) => {
       if (!touchStart || e.touches.length || !e.changedTouches.length) { touchStart = null; return; }
       const t = e.changedTouches[0];
-      const gesture = PanelLogic.classifyTrackGesture(t.clientX - touchStart.x, t.clientY - touchStart.y, Date.now() - touchStart.time);
+      const gesture = PanelLogic.classifyTrackGesture(t.clientX - touchStart.x, t.clientY - touchStart.y, performance.now() - touchStart.time);
       if (gesture === "next" || gesture === "previous") {
         document.getElementById(gesture === "next" ? "btnNextTrack" : "btnPrevTrack").click();
-        lastTap = 0;
-      } else if (gesture === "tap" && !touchStart.onCover) {
-        if (Date.now() - lastTap < 350) { document.getElementById("btnPlayPause").click(); lastTap = 0; }
-        else lastTap = Date.now();
-      } else lastTap = 0;
+        lastTap = null;
+      } else if (gesture === "tap") {
+        lastTap = { x: t.clientX, y: t.clientY, time: performance.now() };
+      } else lastTap = null;
       touchStart = null;
     }, { passive: true });
-    carPanel.addEventListener("touchcancel", () => { touchStart = null; lastTap = 0; });
+    carPanel.addEventListener("touchcancel", () => { touchStart = null; lastTap = null; });
 
     // --- TRANSPORT CONTROLS ---
     // Мост сам решает, кому слать: у радио Play/Pause включает и выключает его, ←/→ меняют станцию
@@ -2625,19 +2641,51 @@
       renderPlayer();
     }
 
-    document.getElementById("btnPlayPause").addEventListener("click", () => {
+    function bindTransportButton(id, action) {
+      const button = document.getElementById(id);
+      let pointerId = null;
+      let handledPointer = false;
+      button.addEventListener("pointerdown", event => {
+        handledPointer = false;
+        pointerId = event.isPrimary && event.pointerType !== "mouse" ? event.pointerId : null;
+      });
+      button.addEventListener("pointerup", event => {
+        if (pointerId !== event.pointerId) return;
+        pointerId = null;
+        if (twoFingerUsed || button.disabled) return;
+        const bounds = button.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return;
+        handledPointer = true;
+        action();
+      });
+      button.addEventListener("pointercancel", () => { pointerId = null; });
+      button.addEventListener("click", event => {
+        if (handledPointer && event.detail > 0) { handledPointer = false; return; }
+        action();
+      });
+    }
+
+    bindTransportButton("btnPlayPause", () => {
       syncProgress();
       if (isRadio()) {
         state.radio.on = !state.radio.on;
         sendFytCommand(state.radio.on ? "PLAY" : "PAUSE");
         return renderPlayer();
       }
-      state.isPlaying = !state.isPlaying;
+      state.isPlaying = inApp ? playbackState.toggle(performance.now()) : !state.isPlaying;
       sendFytCommand(state.isPlaying ? "PLAY" : "PAUSE");
+      if (inApp) {
+        clearTimeout(playbackConfirmTimer);
+        playbackConfirmTimer = setTimeout(() => {
+          syncProgress();
+          state.isPlaying = playbackState.current(performance.now());
+          renderPlayer();
+        }, 2500);
+      }
       renderPlayer();
     });
 
-    document.getElementById("btnNextTrack").addEventListener("click", () => {
+    bindTransportButton("btnNextTrack", () => {
       syncProgress();
       if (inApp) return sendFytCommand("NEXT");
       if (isRadio()) return stepPreviewStation(1);
@@ -2648,7 +2696,7 @@
       renderPlayer();
     });
 
-    document.getElementById("btnPrevTrack").addEventListener("click", () => {
+    bindTransportButton("btnPrevTrack", () => {
       syncProgress();
       if (inApp) return sendFytCommand("PREV");
       if (isRadio()) return stepPreviewStation(-1);

@@ -9,6 +9,35 @@
   const MAX_TRIP_AGE_MS = 30 * 24 * 60 * 60 * 1000;
   const CLOCK_DRIFT_LIMIT_MS = 2 * 60 * 1000;
 
+  function createPlaybackState(initial, timeoutMs = 2500) {
+    let confirmed = Boolean(initial);
+    let pending = [];
+    function current(now) {
+      if (pending.length && now - pending[pending.length - 1].time >= timeoutMs) pending = [];
+      return pending.length ? pending[pending.length - 1].playing : confirmed;
+    }
+    return {
+      current,
+      toggle(now) {
+        const playing = !current(now);
+        pending.push({ playing, time: now });
+        return playing;
+      },
+      confirm(playing, now) {
+        confirmed = Boolean(playing);
+        if (pending.length && pending[0].playing === confirmed) pending.shift();
+        return current(now);
+      },
+      reset(playing) { confirmed = Boolean(playing); pending = []; }
+    };
+  }
+
+  function isDoubleTap(previous, tap) {
+    if (!previous) return false;
+    const elapsed = tap.time - previous.time;
+    return elapsed >= 0 && elapsed <= 400 && Math.hypot(tap.x - previous.x, tap.y - previous.y) <= 32;
+  }
+
   function batteryPercent(raw) {
     const text = String(raw).trim();
     if (!/^\d{1,3}%?$/.test(text)) return null;
@@ -144,5 +173,5 @@
     return trip.activeMs + (trip.activeFrom === null ? 0 : Math.max(0, now - trip.activeFrom));
   }
 
-  return { batteryPercent, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, TRIP_GAP_MS, TRIP_BIN_MS };
+  return { isDoubleTap, createPlaybackState, batteryPercent, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, TRIP_GAP_MS, TRIP_BIN_MS };
 });

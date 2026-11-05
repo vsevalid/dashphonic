@@ -19,6 +19,7 @@ android {
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 10000
         versionName = (findProperty("versionName") as String?) ?: "1.0.0"
         buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
+        buildConfigField("boolean", "DIAGNOSTICS", ((findProperty("diagnostics") as String?)?.toBoolean() ?: false).toString())
     }
 
     signingConfigs {
@@ -33,11 +34,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            versionNameSuffix = "-debug"
+        }
         release {
             // Без R8 почти весь dex занимает неиспользуемый AppCompat; методы @JavascriptInterface сохраняет стандартный набор правил
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
