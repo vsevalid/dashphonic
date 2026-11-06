@@ -409,8 +409,10 @@
     .bt-sheet .sheet-row h3 { margin: 0; }
     .pill-btn:active { transform: scale(0.96); }
     .pill-btn:disabled { opacity: 0.45; }
-    /* Движение пальца по кнопке не должно превращать короткое нажатие в прокрутку WebView. */
-    #btnPrevTrack, #btnPlayPause, #btnNextTrack { touch-action: none; }
+    /* Дрожание пальца не должно превращать нажатие в прокрутку: WebView тогда шлёт pointercancel и клик теряется.
+       В прокручиваемых списках кнопки оставляют вертикальную прокрутку. */
+    button { touch-action: none; }
+    :where(#voltSheet, .settings-content, .font-options, .weather-sheet-content, .bt-scroll) button { touch-action: pan-y; }
 
     .device-line {
       display: flex;
@@ -702,6 +704,7 @@
     .zen-mode #trackArtist { font-size: 16px; margin-top: 4px; color: var(--text-muted); }
     @media (max-height: 520px) {
       .in-app #carPanelView { overflow-y: auto; justify-content: flex-start; gap: 8px; }
+      .in-app #carPanelView button:not(#btnPrevTrack, #btnPlayPause, #btnNextTrack) { touch-action: pan-y; }
       .in-app .panel-track { margin-top: 0; margin-bottom: 0; padding-top: 6px; padding-bottom: 6px; }
       .in-app .panel-controls { margin-top: auto; }
       .in-app #progressWrap { margin-top: 8px; }
@@ -929,7 +932,7 @@
             </button>
             <h2 id="btSheetTitle" class="text-xl font-semibold">Bluetooth</h2>
           </div>
-          <div class="flex-1 overflow-y-auto min-h-0" style="touch-action: pan-y;">
+          <div class="bt-scroll flex-1 overflow-y-auto min-h-0" style="touch-action: pan-y;">
             <h3>Сопряжённые</h3>
             <div id="pairedList" class="bt-list"></div>
             <div class="sheet-row flex items-center justify-between gap-3 mt-5">
@@ -1899,6 +1902,9 @@
     const lyricsIndicator = document.getElementById("lyricsIndicator");
     const MEDIA_PLACEHOLDER_TITLES = ["Bluetooth", "Без названия", "Untitled"];
     const MEDIA_PLACEHOLDER_ARTISTS = ["Ожидание трека", "Waiting for a track"];
+    // Метаданные трека приходят несколькими сообщениями подряд: короткая пауза отсекает промежуточные пары «название + старый исполнитель»
+    const MEDIA_SETTLE_MS = 350, MEDIA_SECONDARY_MS = 1500, COVER_DECODE_WAIT_MS = 300;
+    let secondaryMedia = null, secondaryMediaTimer = null;
     let mediaSignature = "", mediaRequestId = 0, mediaTimer = null, coverTimer = null, coverStaleTimer = null, lyricsStaleTimer = null, collapseTimer = null, coverRevealTimer = null;
     let coverPresent = false, coverSrc = "", coverRequest = 0, pendingCover = "", artPending = false, lyricRows = [], lyricIntro = false, lyricActive = -2, lyricsOpen = false, lyricsPending = false;
     const layoutAnimations = new Map();
@@ -2004,7 +2010,7 @@
 
     // Смена «название трека ⇄ экран текста»: старое содержимое сначала гаснет на месте, затем меняется раскладка и проявляется новое.
     // Без паузы новое содержимое появлялось бы в старой раскладке и ехало вместе с ней.
-    const MEDIA_SWAP_OUT = 200;
+    const MEDIA_SWAP_OUT = 160;
     let mediaSwapTimer = null, mediaSwapOut = [];
     function updateMediaView(immediate = false) {
       if (mediaSwapTimer) {
@@ -2071,7 +2077,7 @@
       applyContent();
       mediaSwapOut.splice(0).forEach(animation => animation.cancel());
       if (!manual && !reduced) {
-        if (showLyrics !== wasLyrics) fadeInContent(showLyrics ? [lyricsHead, lyricsView] : [elTrackText], 120);
+        if (showLyrics !== wasLyrics) fadeInContent(showLyrics ? [lyricsHead, lyricsView] : [elTrackText], 0);
         else if (headChanged) fadeInContent([lyricsHead.querySelector(".lyrics-head-text")], 0);
       }
       // состояние читается в момент кадра: отложенный кадр от прошлого трека не должен спрятать обложку нового
@@ -2140,8 +2146,9 @@
           coverWash.classList.add("visible");
           updateMediaView();
         };
-        if (image.decode) image.decode().catch(() => {}).then(apply);
-        else apply();
+        // decode() не завершается, пока страница не рисует кадры (скрытый WebView): ждём его недолго, иначе обложку снимет таймер
+        const decoded = image.decode ? image.decode().catch(() => {}) : Promise.resolve();
+        Promise.race([decoded, new Promise(resolve => setTimeout(resolve, COVER_DECODE_WAIT_MS))]).then(apply);
       };
       image.onerror = () => { if (request === coverRequest) setCover(""); };
       coverTimer = setTimeout(() => { if (request === coverRequest) setCover(""); }, 8000);
@@ -2165,7 +2172,12 @@
         line.classList.toggle("past", i < activeEl);
       });
       const target = lyricsLines.children[Math.max(0, activeEl)];
-      if (target) lyricsLines.style.transform = `translateY(${Math.round(lyricsView.clientHeight * .28 - target.offsetTop)}px)`;
+      if (!target) return;
+      // первая расстановка новых строк без прокрутки: они проявляются сразу на месте, а не едут сверху
+      const first = lyricsLines.dataset.placed !== "1";
+      if (first) lyricsLines.style.transition = "none";
+      lyricsLines.style.transform = `translateY(${Math.round(lyricsView.clientHeight * .28 - target.offsetTop)}px)`;
+      if (first) { void lyricsLines.offsetHeight; lyricsLines.style.removeProperty("transition"); lyricsLines.dataset.placed = "1"; }
     }
     new ResizeObserver(() => renderLyrics(true)).observe(lyricsView);
 
@@ -2183,20 +2195,27 @@
       animation.onfinish = animation.oncancel = () => ghost.remove();
     }
 
+    // Spotify в умном перемешивании дописывает к исполнителю « • From Smart Shuffle»: с хвостом ни обложка, ни текст не находятся
+    function lookupArtist(value) {
+      return String(value || "").replace(/\s+•\s+.*$/, "").trim();
+    }
+
     function scheduleMedia(force = false) {
       const track = demoTracks[state.trackIndex];
-      const title = (track.title || "").trim(), artist = (track.artist || "").trim();
+      const title = (track.title || "").trim(), artist = lookupArtist(track.artist);
       // длительность в подпись не входит: она приходит отдельным сообщением и не должна перезапускать поиск
       const signature = JSON.stringify([title, artist, isRadio(), state.phoneConnected, artworkEnabled, lyricsEnabled, zenEnabled]);
       if (!force && signature === mediaSignature) return;
       mediaSignature = signature;
       const id = ++mediaRequestId;
       clearTimeout(mediaTimer);
+      clearTimeout(secondaryMediaTimer);
+      secondaryMedia = null;
       clearTimeout(coverStaleTimer);
       if (previewAbort) { previewAbort.abort(); previewAbort = null; if (previewPendingKey) previewMediaCache.delete(previewPendingKey); previewPendingKey = ""; }
       if (pendingCover) { ++coverRequest; pendingCover = ""; clearTimeout(coverTimer); }
       fadeOutLyricsLines();
-      lyricRows = []; lyricIntro = false; lyricActive = -2; lyricsLines.replaceChildren(); lyricsLines.style.transform = "";
+      lyricRows = []; lyricIntro = false; lyricActive = -2; lyricsLines.replaceChildren(); lyricsLines.style.transform = ""; delete lyricsLines.dataset.placed;
       const eligible = !zenEnabled && !isRadio() && state.phoneConnected && title && artist && !MEDIA_PLACEHOLDER_TITLES.includes(title) && !MEDIA_PLACEHOLDER_ARTISTS.includes(artist);
       // старая обложка держится, пока не придёт ответ по новому треку, чтобы панель не прыгала вверх-вниз
       lyricsPending = eligible && lyricsEnabled;
@@ -2212,9 +2231,24 @@
       mediaTimer = setTimeout(() => {
         if (!inApp) return previewMedia(id);
         const request = JSON.stringify({ id, title, artist, duration: Math.round(demoTracks[state.trackIndex].duration || 0) });
-        if (artworkEnabled) sendFytCommand("MEDIA_ART", request);
-        if (lyricsEnabled) sendFytCommand("MEDIA_LYRICS", request);
-      }, inApp ? 1000 : 300);
+        const kinds = PanelLogic.mediaOrder({ artworkEnabled, lyricsEnabled, lyricsOpen });
+        sendFytCommand(kinds[0] === "art" ? "MEDIA_ART" : "MEDIA_LYRICS", request);
+        if (kinds[1]) queueSecondaryMedia(id, kinds[1], request);
+      }, inApp ? MEDIA_SETTLE_MS : 300);
+    }
+
+    // Второй запрос ждёт ответа на тот, что виден на экране, чтобы не делить с ним канал;
+    // если первый источник тянет, второй всё равно стартует через MEDIA_SECONDARY_MS.
+    function queueSecondaryMedia(id, kind, request) {
+      secondaryMedia = { id, kind, request };
+      secondaryMediaTimer = setTimeout(startSecondaryMedia, MEDIA_SECONDARY_MS);
+    }
+    function startSecondaryMedia() {
+      clearTimeout(secondaryMediaTimer);
+      const pending = secondaryMedia;
+      secondaryMedia = null;
+      if (!pending || pending.id !== mediaRequestId) return;
+      sendFytCommand(pending.kind === "art" ? "MEDIA_ART" : "MEDIA_LYRICS", pending.request);
     }
 
     // Без моста превью само ходит в те же источники, что MediaLookup.kt: прототип показывает настоящие обложки и тексты
@@ -2284,7 +2318,7 @@
         const controller = new AbortController();
         previewAbort = controller;
         previewPendingKey = key;
-        previewMediaCache.set(key, Promise.all([artworkEnabled ? previewArt(track.title, track.artist, 0, controller.signal) : "", lyricsEnabled ? previewLyrics(track.title, track.artist, Math.round(track.duration), controller.signal) : null]));
+        previewMediaCache.set(key, Promise.all([artworkEnabled ? previewArt(track.title, lookupArtist(track.artist), 0, controller.signal) : "", lyricsEnabled ? previewLyrics(track.title, lookupArtist(track.artist), Math.round(track.duration), controller.signal) : null]));
       }
       const [art, lyrics] = await previewMediaCache.get(key);
       if (id !== mediaRequestId) return;
@@ -2302,8 +2336,11 @@
 
     function receiveMedia(result) {
       if (!result || result.id !== mediaRequestId || isRadio() || zenEnabled) return;
+      if (secondaryMedia && secondaryMedia.id === result.id && secondaryMedia.kind !== result.kind) startSecondaryMedia();
       if (result.kind === "art") setCover(artworkEnabled ? result.value || "" : "");
       if (result.kind === "lyrics" && lyricsEnabled) {
+        // строки уходят копией: иначе при «текста нет» они пропадали бы рывком раньше, чем гаснет заголовок
+        fadeOutLyricsLines();
         lyricsPending = false;
         lyricRows = PanelLogic.parseLyrics(result.value);
         lyricIntro = lyricRows.length > 0 && lyricRows[0].time >= 4;
@@ -2315,6 +2352,7 @@
           nodes.unshift(dots);
         }
         lyricsLines.replaceChildren(...nodes);
+        delete lyricsLines.dataset.placed;
         // на экране текста новые строки проявляются на месте ушедших, а не возникают рывком
         if (nodes.length && lyricsView.getClientRects().length && !matchMedia("(prefers-reduced-motion: reduce)").matches) lyricsLines.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: "ease-out" });
         lyricActive = -2;
@@ -2372,7 +2410,15 @@
       incoming.forEach((el, i) => el.animate([{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }],
         { duration: 480, delay: 200 + i * 70, easing: ease, fill: "backwards" }));
     }
-    coverButton.addEventListener("click", () => toggleLyrics(true));
+    // От касания текст открывается после окна двойного тапа, иначе пауза двойным тапом по обложке заодно открывала бы текст.
+    // Мышь и клавиатура двойного тапа не дают, им ждать незачем.
+    let coverTapTimer = null;
+    function cancelPendingCoverTap() { clearTimeout(coverTapTimer); coverTapTimer = null; }
+    coverButton.addEventListener("click", event => {
+      cancelPendingCoverTap();
+      if (!clickFromTouch && !event.sourceCapabilities?.firesTouchEvents) return toggleLyrics(true);
+      coverTapTimer = setTimeout(() => { coverTapTimer = null; toggleLyrics(true); }, 420);
+    });
     coverMini.addEventListener("click", () => toggleLyrics(false));
     lyricsIndicator.addEventListener("click", () => toggleLyrics(true));
     for (const [id, kind] of [["btnArtwork", "art"], ["btnLyrics", "lyrics"]]) {
@@ -2569,7 +2615,7 @@
       } else if (e.touches.length === 1) {
         twoFingerUsed = false;
       }
-    }, { passive: false });
+    }, { passive: true });
 
     carPanel.addEventListener("touchmove", (e) => {
       if (twoFingerStartY === null) return;
@@ -2611,6 +2657,8 @@
       }
       const t = e.touches[0];
       if (PanelLogic.isDoubleTap(lastTap, { x: t.clientX, y: t.clientY, time: performance.now() })) {
+        cancelPendingCoverTap();
+        cancelFastTap();
         document.getElementById("btnPlayPause").click();
         touchStart = null;
         lastTap = null;
@@ -2641,31 +2689,48 @@
       renderPlayer();
     }
 
-    function bindTransportButton(id, action) {
-      const button = document.getElementById(id);
-      let pointerId = null;
-      let handledPointer = false;
-      button.addEventListener("pointerdown", event => {
-        handledPointer = false;
-        pointerId = event.isPrimary && event.pointerType !== "mouse" ? event.pointerId : null;
-      });
-      button.addEventListener("pointerup", event => {
-        if (pointerId !== event.pointerId) return;
-        pointerId = null;
-        if (twoFingerUsed || button.disabled) return;
-        const bounds = button.getBoundingClientRect();
-        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return;
-        handledPointer = true;
-        action();
-      });
-      button.addEventListener("pointercancel", () => { pointerId = null; });
-      button.addEventListener("click", event => {
-        if (handledPointer && event.detail > 0) { handledPointer = false; return; }
-        action();
-      });
+    // В VD-лаунчере WebView часто не превращает короткое касание в click, поэтому кнопка срабатывает по отпусканию пальца.
+    // Браузерный click после этого гасится до следующего касания: он может прийти позже и попасть в элемент,
+    // который появился под пальцем.
+    const FAST_TAP_SLOP = 16;
+    const FAST_TAP_CLICK_MS = 700;
+    let fastTap = null;
+    let swallowClickUntil = 0;
+    let clickFromTouch = false;
+    function cancelFastTap() {
+      fastTap = null;
+      swallowClickUntil = Infinity;
     }
+    document.addEventListener("pointerdown", event => {
+      swallowClickUntil = 0;
+      const button = event.target instanceof Element ? event.target.closest("button") : null;
+      fastTap = button && event.isPrimary && event.pointerType !== "mouse" && !button.disabled && !button.closest(".volume-slot")
+        ? { button, pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+        : null;
+    }, true);
+    document.addEventListener("pointercancel", event => {
+      if (fastTap && fastTap.pointerId === event.pointerId) fastTap = null;
+    }, true);
+    document.addEventListener("pointerup", event => {
+      const tap = fastTap;
+      if (!tap || tap.pointerId !== event.pointerId) return;
+      fastTap = null;
+      const { button } = tap;
+      if (twoFingerUsed || button.disabled || !button.isConnected) return;
+      if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > FAST_TAP_SLOP) return;
+      const bounds = button.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return;
+      swallowClickUntil = performance.now() + FAST_TAP_CLICK_MS;
+      clickFromTouch = true;
+      try { button.click(); } finally { clickFromTouch = false; }
+    }, true);
+    document.addEventListener("click", event => {
+      if (event.detail === 0 || performance.now() >= swallowClickUntil) return;
+      event.stopPropagation();
+      event.preventDefault();
+    }, true);
 
-    bindTransportButton("btnPlayPause", () => {
+    document.getElementById("btnPlayPause").addEventListener("click", () => {
       syncProgress();
       if (isRadio()) {
         state.radio.on = !state.radio.on;
@@ -2685,7 +2750,7 @@
       renderPlayer();
     });
 
-    bindTransportButton("btnNextTrack", () => {
+    document.getElementById("btnNextTrack").addEventListener("click", () => {
       syncProgress();
       if (inApp) return sendFytCommand("NEXT");
       if (isRadio()) return stepPreviewStation(1);
@@ -2696,7 +2761,7 @@
       renderPlayer();
     });
 
-    bindTransportButton("btnPrevTrack", () => {
+    document.getElementById("btnPrevTrack").addEventListener("click", () => {
       syncProgress();
       if (inApp) return sendFytCommand("PREV");
       if (isRadio()) return stepPreviewStation(-1);

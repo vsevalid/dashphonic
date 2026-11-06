@@ -8,9 +8,57 @@ import android.view.MotionEvent
 import android.webkit.WebView
 
 class LauncherWebView(context: Context) : WebView(context) {
-    // WebView's handler retains its own click and accessibility dispatch.
+    // VD-лаунчер принимает палец своим окном на дисплее 0 и только потом переносит касание на наш дисплей:
+    // фокус окна на несколько миллисекунд уходит к лаунчеру и возвращается. Chromium на любую смену фокуса
+    // окна отменяет текущее касание (touchcancel), и кнопка не срабатывает. Поэтому короткую потерю фокуса
+    // не передаём, а смену фокуса во время касания откладываем до отпускания пальца.
+    private var touchActive = false
+    private var forwardedFocus: Boolean? = null
+    private var pendingFocus: Boolean? = null
+    private val flushFocus = Runnable { if (!touchActive) deliverPendingFocus() }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        if ((BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS)) {
+            Log.d("Dashphonic", "Window focus=$hasWindowFocus touch=$touchActive forwarded=$forwardedFocus")
+        }
+        removeCallbacks(flushFocus)
+        if (hasWindowFocus == forwardedFocus) {
+            pendingFocus = null
+            return
+        }
+        pendingFocus = hasWindowFocus
+        scheduleFocus()
+    }
+
+    private fun scheduleFocus() {
+        val focus = pendingFocus ?: return
+        if (touchActive) return
+        if (focus) deliverPendingFocus() else postDelayed(flushFocus, FOCUS_LOSS_DEBOUNCE_MS)
+    }
+
+    private fun deliverPendingFocus() {
+        val focus = pendingFocus ?: return
+        pendingFocus = null
+        forwardedFocus = focus
+        super.onWindowFocusChanged(focus)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(flushFocus)
+        pendingFocus = null
+        forwardedFocus = null
+        super.onDetachedFromWindow()
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> touchActive = true
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                touchActive = false
+                post { scheduleFocus() }
+            }
+        }
         val unknownPointer = (0 until event.pointerCount).any {
             event.getToolType(it) == MotionEvent.TOOL_TYPE_UNKNOWN
         }
@@ -19,7 +67,6 @@ class LauncherWebView(context: Context) : WebView(context) {
         }
         if (!unknownPointer) return super.onTouchEvent(event)
 
-        // VD launchers can omit the tool type; give Chromium consistent touchscreen events.
         val properties = Array(event.pointerCount) { index ->
             MotionEvent.PointerProperties().also {
                 event.getPointerProperties(index, it)
@@ -40,5 +87,10 @@ class LauncherWebView(context: Context) : WebView(context) {
         } finally {
             touch.recycle()
         }
+    }
+
+    private companion object {
+        // лаунчер возвращает фокус за 5–10 мс; запас на загруженную систему
+        const val FOCUS_LOSS_DEBOUNCE_MS = 300L
     }
 }

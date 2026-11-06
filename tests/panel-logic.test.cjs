@@ -125,3 +125,12 @@ test('track lookups match the phone metadata the same way as MediaLookup.kt', ()
   assert.ok(logic.matchesArtist('Кино', 'кино'));
   assert.ok(!logic.matchesArtist('Daft Punk', 'The Weeknd'));
 });
+
+test('media loads what is on screen first: lyrics when open or artwork is off, artwork otherwise', () => {
+  const { mediaOrder } = require('../app/src/main/assets/panel-logic.js');
+  assert.deepEqual(mediaOrder({ artworkEnabled: true, lyricsEnabled: true, lyricsOpen: false }), ['art', 'lyrics']);
+  assert.deepEqual(mediaOrder({ artworkEnabled: true, lyricsEnabled: true, lyricsOpen: true }), ['lyrics', 'art']);
+  assert.deepEqual(mediaOrder({ artworkEnabled: false, lyricsEnabled: true, lyricsOpen: false }), ['lyrics']);
+  assert.deepEqual(mediaOrder({ artworkEnabled: true, lyricsEnabled: false, lyricsOpen: true }), ['art']);
+  assert.deepEqual(mediaOrder({ artworkEnabled: false, lyricsEnabled: false, lyricsOpen: false }), []);
+});

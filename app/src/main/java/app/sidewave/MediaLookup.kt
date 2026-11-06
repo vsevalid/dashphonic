@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -147,26 +148,38 @@ class MediaLookup(context: Context, private val deliver: (JSONObject) -> Unit) {
             if (!valid(kind, generation)) { connection.disconnect(); return null }
             connections[kind] = connection
         }
+        // Дочитанное до конца соединение возвращается в пул: следующий запрос к тому же хосту
+        // (lrclib get → search, iTunes ru → us, следующий трек) обходится без нового TLS-рукопожатия.
+        var reusable = false
         try {
             connection.connectTimeout = 10000
             connection.readTimeout = 12000
             connection.setRequestProperty("User-Agent", "Dashphonic/${BuildConfig.VERSION_NAME} (https://github.com/${BuildConfig.GITHUB_REPO})")
-            if (connection.responseCode != 200 || !valid(kind, generation)) return null
-            connection.inputStream.use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (valid(kind, generation)) {
-                    val count = input.read(buffer)
-                    if (count < 0) return output.toByteArray()
-                    if (output.size() + count > limit) return null
-                    output.write(buffer, 0, count)
-                }
+            val code = connection.responseCode
+            if (!valid(kind, generation)) return null
+            if (code != 200) {
+                reusable = connection.errorStream?.use { readAll(it, kind, generation, 64 * 1024) } != null
+                return null
             }
-            return null
+            val body = connection.inputStream.use { readAll(it, kind, generation, limit) }
+            reusable = body != null
+            return body
         } finally {
             synchronized(this) { if (connections[kind] === connection) connections.remove(kind) }
-            connection.disconnect()
+            if (!reusable) connection.disconnect()
         }
+    }
+
+    private fun readAll(input: InputStream, kind: String, generation: Int, limit: Int): ByteArray? {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (valid(kind, generation)) {
+            val count = input.read(buffer)
+            if (count < 0) return output.toByteArray()
+            if (output.size() + count > limit) return null
+            output.write(buffer, 0, count)
+        }
+        return null
     }
 
     private fun trim(folder: File, limit: Long) {

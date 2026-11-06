@@ -15,9 +15,11 @@ test('zen cancels pending work and exiting requests enabled media again', () => 
     zenEnabled: true, artworkEnabled: true, lyricsEnabled: true, isRadio: () => false,
     mediaSignature: '', mediaRequestId: 0, mediaTimer: null, coverStaleTimer: null, coverTimer: null, lyricsStaleTimer: null,
     pendingCover: 'old', coverRequest: 0, previewAbort: { abort() { aborts++; } }, previewPendingKey: 'old', previewMediaCache: new Map([['old', 1]]),
-    lyricRows: [], lyricIntro: false, lyricActive: 0, lyricsPending: true, lyricsLines: { replaceChildren() {}, style: {} },
+    lyricRows: [], lyricIntro: false, lyricActive: 0, lyricsPending: true, lyricsLines: { replaceChildren() {}, style: {}, dataset: {} },
     MEDIA_PLACEHOLDER_TITLES: [], MEDIA_PLACEHOLDER_ARTISTS: [],
-    setCover(value) { calls.push(['cover', value]); }, updateMediaView() {}, fadeOutLyricsLines() {},
+    MEDIA_SETTLE_MS: 350, MEDIA_SECONDARY_MS: 1500, secondaryMedia: null, secondaryMediaTimer: null, lyricsOpen: false,
+    PanelLogic: require('../app/src/main/assets/panel-logic.js'),
+    setCover(value) { calls.push(['cover', value]); }, updateMediaView() {}, fadeOutLyricsLines() {}, lookupArtist: value => String(value || "").trim(),
     inApp: true, sendFytCommand(kind) { calls.push([kind]); },
     setTimeout(fn) { if (!c.zenEnabled && fn.toString().includes('sendFytCommand')) fn(); return 1; }, clearTimeout() {},
   };

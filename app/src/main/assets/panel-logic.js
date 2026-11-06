@@ -32,6 +32,13 @@
     };
   }
 
+  // Первым грузится то, что окажется на экране: текст, если он открыт или обложка выключена, иначе обложка.
+  function mediaOrder({ artworkEnabled, lyricsEnabled, lyricsOpen }) {
+    if (!artworkEnabled) return lyricsEnabled ? ['lyrics'] : [];
+    if (!lyricsEnabled) return ['art'];
+    return lyricsOpen ? ['lyrics', 'art'] : ['art', 'lyrics'];
+  }
+
   function isDoubleTap(previous, tap) {
     if (!previous) return false;
     const elapsed = tap.time - previous.time;
@@ -173,5 +180,5 @@
     return trip.activeMs + (trip.activeFrom === null ? 0 : Math.max(0, now - trip.activeFrom));
   }
 
-  return { isDoubleTap, createPlaybackState, batteryPercent, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, TRIP_GAP_MS, TRIP_BIN_MS };
+  return { mediaOrder, isDoubleTap, createPlaybackState, batteryPercent, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, TRIP_GAP_MS, TRIP_BIN_MS };
 });
