@@ -1931,9 +1931,11 @@
         coverSlot.style.maxHeight = "0px";
       }
     }
-    coverSlot.addEventListener("transitionend", event => {
+    // прерванный переход не даёт transitionend: без transitioncancel высота 520px оставалась бы в стиле,
+    // и скрытый слот обложки делил бы место с текстом песни пополам
+    ["transitionend", "transitioncancel"].forEach(type => coverSlot.addEventListener(type, event => {
       if (event.target === coverSlot && event.propertyName === "max-height") coverSlot.style.removeProperty("max-height");
-    });
+    }));
 
     function setMediaExpanded(expanded, applyContent) {
       if (elPanelView.classList.contains("media-expanded") === expanded) return applyContent?.();
@@ -2371,6 +2373,7 @@
       const from = (open ? coverButton : coverMini).getBoundingClientRect();
       lyricsOpen = open;
       coverSlot.classList.add("instant");
+      coverSlot.style.removeProperty("max-height");
       updateMediaView(true);
       coverSlot.classList.toggle("visible", !open);
       const target = open ? coverMini : coverButton;
