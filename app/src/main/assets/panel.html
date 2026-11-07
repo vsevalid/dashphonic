@@ -210,6 +210,7 @@
     .progress-track { background-color: var(--track-bg); }
     /* у эфира нет конца: шкалу не заполняем, справа вместо длительности метка с точкой «идёт сейчас» */
     #progressWrap.live .progress-fill { opacity: 0; }
+    #progressWrap.live #trackCurrentTime { visibility: hidden; }
     #progressWrap.live #trackDuration { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; text-transform: uppercase; letter-spacing: .06em; }
     #progressWrap.live #trackDuration::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ef4444; }
     .progress-fill { background-color: var(--track-fill); }
@@ -2240,8 +2241,13 @@
       if (!eligible) return;
       mediaTimer = setTimeout(() => {
         if (!inApp) return previewMedia(id);
-        const request = JSON.stringify({ id, title, artist, duration: Math.round(demoTracks[state.trackIndex].duration || 0) });
-        const kinds = PanelLogic.mediaOrder({ artworkEnabled, lyricsEnabled, lyricsOpen });
+        const duration = Math.round(demoTracks[state.trackIndex].duration || 0);
+        const request = JSON.stringify({ id, title, artist, duration });
+        // у эфира позиция считается от начала трансляции, а не песни: синхронный текст не совпадёт, ищем только обложку
+        const live = duration <= 0;
+        if (live && lyricsPending) { lyricsPending = false; updateMediaView(); }
+        const kinds = PanelLogic.mediaOrder({ artworkEnabled, lyricsEnabled: lyricsEnabled && !live, lyricsOpen });
+        if (!kinds.length) return;
         sendFytCommand(kinds[0] === "art" ? "MEDIA_ART" : "MEDIA_LYRICS", request);
         if (kinds[1]) queueSecondaryMedia(id, kinds[1], request);
       }, inApp ? MEDIA_SETTLE_MS : 300);
@@ -2352,7 +2358,7 @@
         // строки уходят копией: иначе при «текста нет» они пропадали бы рывком раньше, чем гаснет заголовок
         fadeOutLyricsLines();
         lyricsPending = false;
-        lyricRows = PanelLogic.parseLyrics(result.value);
+        lyricRows = demoTracks[state.trackIndex].duration > 0 ? PanelLogic.parseLyrics(result.value) : [];
         lyricIntro = lyricRows.length > 0 && lyricRows[0].time >= 4;
         const nodes = lyricRows.map(row => { const p = document.createElement("p"); p.className = "lyric-line"; p.textContent = row.text; return p; });
         if (lyricIntro) {
