@@ -65,6 +65,10 @@ class FytIpcBridge(
         const val C_DISCOVER = 20
         const val C_CONNECT_DEVICE = 24
         const val C_BTAV_PLAY = 27
+        // строка уходит в BT-модуль как есть (i0.b.a в com.syu.ms)
+        const val C_MODULE_RAW = 59
+        // ms шлёт её модулю, когда тот готов, и в ответ приходят название и артист
+        const val MODULE_QUERY_MUSIC_INFO = "MY"
         // Пауза между разрывом текущего телефона и подключением нового, как в Bt_IpcObj.FuncPairLink стокового приложения
         private const val RELINK_DELAY_MS = 2_000L
 
@@ -120,6 +124,8 @@ class FytIpcBridge(
         // позиция приходит раз в секунду: больший разрыв значит, что воспроизведение остановилось
         private const val POSITION_PLAYING_GAP_MS = 2_500L
         private const val SOURCE_CLAIM_INTERVAL_MS = 3_000L
+        private const val MUSIC_INFO_INTERVAL_MS = 8_000L
+        private const val MUSIC_INFO_ATTEMPTS = 3
         // Прошивка ставит музыку на паузу чуть раньше, чем сообщает о выключении зажигания
         private const val PLAYING_BEFORE_ACC_OFF_MS = 5_000L
         private const val RESUME_WAIT_PHONE_MS = 60_000L
@@ -155,6 +161,9 @@ class FytIpcBridge(
     @Volatile private var lastPositionMs = -1
     @Volatile private var lastPositionAt = 0L
     private var sourceClaimedAt = 0L
+    @Volatile private var titleKnown = false
+    private var musicInfoAskedAt = 0L
+    private var musicInfoAttemptsLeft = MUSIC_INFO_ATTEMPTS
     @Volatile private var phoneConnected = false
     private var accOn: Boolean? = null
 
@@ -172,7 +181,10 @@ class FytIpcBridge(
             val s0 = strs?.firstOrNull()?.trim()
             val patch = JSONObject()
             when (updateCode) {
-                U_BTAV_ID3_TITLE -> patch.put("title", s0.orEmpty())
+                U_BTAV_ID3_TITLE -> {
+                    titleKnown = !s0.isNullOrEmpty()
+                    patch.put("title", s0.orEmpty())
+                }
                 U_BTAV_ID3_ARTIST -> patch.put("artist", s0.orEmpty())
                 U_BTAV_ID3_ALBUM -> patch.put("album", s0.orEmpty())
                 // время на этой прошивке всегда в миллисекундах
@@ -183,7 +195,10 @@ class FytIpcBridge(
                     val advancing = lastPositionMs in 0 until it && now - lastPositionAt < POSITION_PLAYING_GAP_MS
                     lastPositionMs = it
                     lastPositionAt = now
-                    if (advancing) handler.post { claimBtSourceIfIdle() }
+                    if (advancing) handler.post {
+                        claimBtSourceIfIdle()
+                        askMusicInfoIfMissing()
+                    }
                     patch.put("positionSec", it / 1000.0)
                 }
                 U_BTAV_PLAY_STATE -> i0?.let {
@@ -197,6 +212,7 @@ class FytIpcBridge(
                 U_HFP -> i0?.let { patch.put("hfp", it) }
                 U_PHONE_STATE -> i0?.let {
                     val connected = it in PHONE_CONNECTED_STATES
+                    if (connected != phoneConnected) handler.post { musicInfoAttemptsLeft = MUSIC_INFO_ATTEMPTS }
                     if (connected && !phoneConnected) scheduleTrackRefresh()
                     phoneConnected = connected
                     patch.put("phoneConnected", phoneConnected)
@@ -488,6 +504,18 @@ class FytIpcBridge(
         mainCmd(C_APP_ID, APP_ID_BTAV)
     }
 
+    // После перезагрузки магнитолы телефон продолжает играть, но модуль не присылает название,
+    // пока не сменится трек: ms запрашивает его только при старте модуля. Просим сами
+    private fun askMusicInfoIfMissing() {
+        if (titleKnown || !phoneConnected || appId != APP_ID_BTAV || musicInfoAttemptsLeft <= 0) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - musicInfoAskedAt < MUSIC_INFO_INTERVAL_MS) return
+        musicInfoAskedAt = now
+        musicInfoAttemptsLeft--
+        if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Ask music info: playing without a title")
+        btCmd(C_MODULE_RAW, strs = arrayOf(MODULE_QUERY_MUSIC_INFO))
+    }
+
     private fun onBtSourceReady() {
         handler.removeCallbacks(retrySource)
         sourceRetriesLeft = 0
@@ -586,10 +614,12 @@ class FytIpcBridge(
             else -> null
         } ?: return@post
         val code = parts.getOrNull(1)?.toIntOrNull() ?: return@post
-        val ints = parts.drop(2).mapNotNull { it.toIntOrNull() }.toIntArray()
+        val args = parts.drop(2)
+        val ints = args.mapNotNull { it.toIntOrNull() }.toIntArray()
+        val strs = args.filter { it.toIntOrNull() == null }.toTypedArray()
         Log.d(TAG, "Raw command $spec")
         try {
-            module.cmd(code, ints.takeIf { it.isNotEmpty() }, null, null)
+            module.cmd(code, ints.takeIf { it.isNotEmpty() }, null, strs.takeIf { it.isNotEmpty() })
         } catch (e: RemoteException) {
             Log.w(TAG, "Команда $spec не отправлена", e)
         }
