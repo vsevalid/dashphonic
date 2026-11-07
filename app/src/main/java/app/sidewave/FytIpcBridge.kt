@@ -574,6 +574,27 @@ class FytIpcBridge(
         }
     }
 
+    // Только в отладочных и тестовых сборках: команда прошивке вида "bt:31:1" для опытов на магнитоле без пересборки
+    fun rawCmd(spec: String) = handler.post {
+        if (!BuildConfig.DEBUG && !BuildConfig.DIAGNOSTICS) return@post
+        val parts = spec.split(':')
+        val module = when (parts.firstOrNull()) {
+            "main" -> mainModule
+            "bt" -> btModule
+            "radio" -> radioModule
+            "sound" -> soundModule
+            else -> null
+        } ?: return@post
+        val code = parts.getOrNull(1)?.toIntOrNull() ?: return@post
+        val ints = parts.drop(2).mapNotNull { it.toIntOrNull() }.toIntArray()
+        Log.d(TAG, "Raw command $spec")
+        try {
+            module.cmd(code, ints.takeIf { it.isNotEmpty() }, null, null)
+        } catch (e: RemoteException) {
+            Log.w(TAG, "Команда $spec не отправлена", e)
+        }
+    }
+
     private fun mainCmd(code: Int, value: Int) {
         try {
             mainModule?.cmd(code, intArrayOf(value), null, null)
