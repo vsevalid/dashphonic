@@ -4,6 +4,10 @@
 
 [English version](README.md)
 
+<p align="center"><img src="docs/media/dashphonic-demo.gif" width="320" alt="Dashphonic: переключение треков, текст песни и экран поездки"></p>
+
+![Плеер с обложкой, плеер без обложки в светлой теме, текст песни, FM-радио](docs/media/dashphonic-screens.png)
+
 ## Зачем
 
 В прошивках FYT Bluetooth-плеер живёт внутри системного сервиса `com.syu.ms` и не публикует `MediaSession`. Виджеты и плееры из Google Play не видят музыку с телефона. Dashphonic подключается к этому сервису через AIDL (`com.syu.ipc.IRemoteToolkit`) и слушает широковещательные сообщения прошивки, поэтому получает название, исполнителя, позицию трека и громкость напрямую.

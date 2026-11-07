@@ -4,6 +4,10 @@ A Bluetooth music panel and clock for FYT head units. Dashphonic is designed to 
 
 [Русская версия](README.ru.md)
 
+<p align="center"><img src="docs/media/dashphonic-demo.gif" width="320" alt="Dashphonic changing tracks, showing synced lyrics and switching to the trip screen"></p>
+
+![Player with album art, player without art in the light theme, synced lyrics, FM radio](docs/media/dashphonic-screens.png)
+
 ## Why it exists
 
 On FYT firmware the Bluetooth player lives inside the system service `com.syu.ms` and does not publish an Android `MediaSession`. Widgets and players from Google Play see nothing while music plays from the phone. Dashphonic talks to that service over its AIDL interface (`com.syu.ipc.IRemoteToolkit`) and listens to the firmware broadcasts, so it gets the track title, artist, position and volume directly.
