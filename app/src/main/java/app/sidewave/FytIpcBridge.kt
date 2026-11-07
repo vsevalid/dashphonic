@@ -90,6 +90,7 @@ class FytIpcBridge(
         // FinalMain
         const val U_APP_ID = 0
         const val C_APP_ID = 0
+        const val APP_ID_NONE = 0
         const val APP_ID_RADIO = 1
         const val APP_ID_BTAV = 3
         const val U_LAMPLET = 4
@@ -116,6 +117,9 @@ class FytIpcBridge(
         // Стоковое приложение повторяет запрос источника каждые 300 мс, пока прошивка его не примет
         private const val SOURCE_RETRY_MS = 300L
         private const val SOURCE_RETRIES = 5
+        // позиция приходит раз в секунду: больший разрыв значит, что воспроизведение остановилось
+        private const val POSITION_PLAYING_GAP_MS = 2_500L
+        private const val SOURCE_CLAIM_INTERVAL_MS = 3_000L
         // Прошивка ставит музыку на паузу чуть раньше, чем сообщает о выключении зажигания
         private const val PLAYING_BEFORE_ACC_OFF_MS = 5_000L
         private const val RESUME_WAIT_PHONE_MS = 60_000L
@@ -148,6 +152,9 @@ class FytIpcBridge(
     @Volatile private var radioPower = true
     @Volatile private var playing = false
     @Volatile private var playingStoppedAt = 0L
+    @Volatile private var lastPositionMs = -1
+    @Volatile private var lastPositionAt = 0L
+    private var sourceClaimedAt = 0L
     @Volatile private var phoneConnected = false
     private var accOn: Boolean? = null
 
@@ -171,11 +178,19 @@ class FytIpcBridge(
                 // время на этой прошивке всегда в миллисекундах
                 U_BTAV_TOTAL_TIME -> i0?.let { patch.put("durationSec", it / 1000) }
                 // дробная часть нужна тексту песни: при целых секундах строка опаздывает до секунды
-                U_BTAV_PLAY_TIME -> i0?.let { patch.put("positionSec", it / 1000.0) }
+                U_BTAV_PLAY_TIME -> i0?.let {
+                    val now = SystemClock.elapsedRealtime()
+                    val advancing = lastPositionMs in 0 until it && now - lastPositionAt < POSITION_PLAYING_GAP_MS
+                    lastPositionMs = it
+                    lastPositionAt = now
+                    if (advancing) handler.post { claimBtSourceIfIdle() }
+                    patch.put("positionSec", it / 1000.0)
+                }
                 U_BTAV_PLAY_STATE -> i0?.let {
                     val nowPlaying = it == 1
                     if (playing && !nowPlaying) playingStoppedAt = SystemClock.elapsedRealtime()
                     playing = nowPlaying
+                    if (nowPlaying) handler.post { claimBtSourceIfIdle() }
                     patch.put("playing", nowPlaying)
                 }
                 U_A2DP_SINK_STATE -> i0?.let { patch.put("a2dp", it) }
@@ -235,7 +250,12 @@ class FytIpcBridge(
                 U_APP_ID -> {
                     appId = i0
                     onPatch(JSONObject().put("source", i0))
-                    if (i0 == APP_ID_BTAV) handler.post { onBtSourceReady() }
+                    if (i0 == APP_ID_BTAV) handler.post {
+                        onBtSourceReady()
+                        // без выбранного источника прошивка могла не получить название: перезапрашиваем
+                        scheduleTrackRefresh()
+                    }
+                    if (i0 == APP_ID_NONE) handler.post { claimBtSourceIfIdle() }
                 }
                 U_ACC_ON -> {
                     onPatch(JSONObject().put("acc", i0 != 0))
@@ -451,6 +471,21 @@ class FytIpcBridge(
             mainCmd(C_APP_ID, APP_ID_BTAV)
             handler.postDelayed(this, SOURCE_RETRY_MS)
         }
+    }
+
+    // После загрузки телефон сам продолжает играть, но источник в прошивке не выбран и звука нет.
+    // Штатное приложение выбирает его, только когда открыта вкладка музыки; делаем это за него.
+    // Чужой источник (радио, USB) не перехватываем: только когда не выбрано ничего
+    private fun phoneAudioActive() = playing ||
+        SystemClock.elapsedRealtime() - lastPositionAt < POSITION_PLAYING_GAP_MS
+
+    private fun claimBtSourceIfIdle() {
+        if (appId != APP_ID_NONE || accOn != true || !phoneConnected || !phoneAudioActive()) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - sourceClaimedAt < SOURCE_CLAIM_INTERVAL_MS) return
+        sourceClaimedAt = now
+        if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Claim BT source: phone plays with no source selected")
+        mainCmd(C_APP_ID, APP_ID_BTAV)
     }
 
     private fun onBtSourceReady() {
