@@ -111,6 +111,14 @@ test('a nickname is shown only when the paired device name is unambiguous', () =
   assert.equal(logic.connectedPhoneName('', [], aliases), null);
 });
 
+test('before the paired list arrives the nickname is found by the saved original name', () => {
+  const aliases = new Map([['AA:01', { alias: 'Папа', original: 'iPhone' }], ['AA:03', { alias: 'Мама', original: 'Pixel' }]]);
+  assert.equal(logic.connectedPhoneName('iPhone', [], aliases), 'Папа');
+  assert.equal(logic.connectedPhoneName('Galaxy', [], aliases), 'Galaxy');
+  aliases.set('AA:02', { alias: 'Сын', original: 'iPhone' });
+  assert.equal(logic.connectedPhoneName('iPhone', [], aliases), 'iPhone');
+});
+
 test('track lookups match the phone metadata the same way as MediaLookup.kt', () => {
   assert.ok(logic.matchesTitle('Starboy (feat. Daft Punk)', 'Starboy'));
   assert.ok(logic.matchesTitle('Кукушка - Remastered 2019', 'Кукушка'));

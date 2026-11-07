@@ -208,6 +208,10 @@
     .text-sec { color: var(--text-secondary); }
     .text-mut { color: var(--text-muted); }
     .progress-track { background-color: var(--track-bg); }
+    /* у эфира нет конца: шкалу не заполняем, справа вместо длительности метка с точкой «идёт сейчас» */
+    #progressWrap.live .progress-fill { opacity: 0; }
+    #progressWrap.live #trackDuration { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; text-transform: uppercase; letter-spacing: .06em; }
+    #progressWrap.live #trackDuration::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ef4444; }
     .progress-fill { background-color: var(--track-fill); }
 
     /* Прогресс через transform: раз в секунду без пересчёта раскладки */
@@ -1236,6 +1240,15 @@
       return state.elapsedSec + (state.isPlaying && !isRadio() ? (performance.now() - progressAnchor) / 1000 : 0);
     }
     function syncProgress() { state.elapsedSec = currentPosition(); progressAnchor = performance.now(); }
+    // Эфир с телефона (радио, трансляции) приходит без длительности, а позиция растёт бесконечно
+    const LIVE_MIN_POSITION_SEC = 3;
+    const isLiveTrack = track => !(track.duration > 0) && currentPosition() >= LIVE_MIN_POSITION_SEC &&
+      !MEDIA_PLACEHOLDER_TITLES.includes(track.title);
+    function renderDuration(track) {
+      const live = isLiveTrack(track);
+      elProgressWrap.classList.toggle("live", live);
+      setText(elDuration, live ? (lang === "en" ? "Live" : "Эфир") : formatTime(track.duration));
+    }
     function drawProgress(sec, duration) {
       const ratio = duration > 0 ? sec / duration : 0;
       elProgressBar.style.transform = `scaleX(${ratio.toFixed(4)})`;
@@ -1298,7 +1311,7 @@
         // позиция старого трека может прийти уже после смены названия: за длительность не вылезаем
         const shownSec = track.duration > 0 ? Math.min(currentPosition(), track.duration) : currentPosition();
         drawProgress(shownSec, track.duration);
-        setText(elDuration, formatTime(track.duration));
+        renderDuration(track);
       }
 
       if (playing) {
@@ -2461,7 +2474,8 @@
       if ("positionSec" in p) state.elapsedSec = p.positionSec;
       if ("playing" in p) state.isPlaying = playbackState.confirm(p.playing, performance.now());
       // состояние «играет» прошивка тоже может не прислать повторно, а позиция во время воспроизведения идёт всегда
-      const waitingForTrack = track.title === "Bluetooth" && MEDIA_PLACEHOLDER_ARTISTS.includes(track.artist);
+      const waitingForTrack = (track.title === "Bluetooth" && MEDIA_PLACEHOLDER_ARTISTS.includes(track.artist)) ||
+        (MEDIA_PLACEHOLDER_TITLES.includes(track.title) && !track.artist);
       if (inApp && waitingForTrack && metadataActive && (p.playing === true || p.positionSec > 0) &&
           performance.now() - trackRefreshAt >= TRACK_REFRESH_INTERVAL_MS) {
         trackRefreshAt = performance.now();
@@ -2987,8 +3001,11 @@
       return PanelLogic.connectedPhoneName(state.phoneName, btDevices.paired.values(), btAliases);
     }
 
+    let pairedRequested = false;
     function renderPhone() {
       const on = Boolean(state.phoneConnected);
+      // без списка сопряжённых прозвище не сопоставить, а сама прошивка его не присылает
+      if (inApp && on && !pairedRequested && !btDevices.paired.size) { pairedRequested = true; sendFytCommand("BT_PAIRED"); }
       elDeviceBtn.classList.toggle("off", !on);
       elDeviceLabel.textContent = on ? connectedPhoneLabel() : (lang === "en" ? "Connect phone" : "Подключить телефон");
       renderBattery();
@@ -3578,7 +3595,10 @@
         if (!inApp && track.duration > 0 && position >= track.duration) {
           state.trackIndex = (state.trackIndex + 1) % demoTracks.length;
           state.elapsedSec = 0; progressAnchor = performance.now(); renderPlayer();
-        } else drawProgress(track.duration > 0 ? Math.min(position, track.duration) : position, track.duration);
+        } else {
+          drawProgress(track.duration > 0 ? Math.min(position, track.duration) : position, track.duration);
+          renderDuration(track);
+        }
       }
       if (lyricRows.length) renderLyrics();
       if (playing) progressTimer = setTimeout(() => requestAnimationFrame(animateProgress), 100);

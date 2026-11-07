@@ -59,7 +59,13 @@
 
   function connectedPhoneName(original, devices, aliases) {
     if (!original) return null;
-    const matches = Array.from(devices).filter(device => device && device.name === original);
+    const all = Array.from(devices);
+    if (!all.length) {
+      // список сопряжённых ещё не пришёл: узнаём устройство по имени, сохранённому вместе с прозвищем
+      const known = Array.from(aliases.values()).filter(alias => alias && alias.original === original && alias.alias);
+      return known.length === 1 ? known[0].alias : original;
+    }
+    const matches = all.filter(device => device && device.name === original);
     if (matches.length !== 1) return original;
     const alias = aliases.get(String(matches[0].addr).toUpperCase());
     return alias && alias.alias ? alias.alias : original;
