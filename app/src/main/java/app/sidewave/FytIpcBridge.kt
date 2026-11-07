@@ -67,8 +67,8 @@ class FytIpcBridge(
         const val C_BTAV_PLAY = 27
         // строка уходит в BT-модуль как есть (i0.b.a в com.syu.ms)
         const val C_MODULE_RAW = 59
-        // ms шлёт её модулю, когда тот готов, и в ответ приходят название и артист
-        const val MODULE_QUERY_MUSIC_INFO = "MY"
+        // модуль Blink отвечает строкой MI: название, артист, длительность (проверено на магнитоле)
+        const val MODULE_QUERY_MUSIC_INFO = "MK"
         // Пауза между разрывом текущего телефона и подключением нового, как в Bt_IpcObj.FuncPairLink стокового приложения
         private const val RELINK_DELAY_MS = 2_000L
 
@@ -505,9 +505,9 @@ class FytIpcBridge(
     }
 
     // После перезагрузки магнитолы телефон продолжает играть, но модуль не присылает название,
-    // пока не сменится трек: ms запрашивает его только при старте модуля. Просим сами
+    // пока не сменится трек, а ms сам его не запрашивает. Просим сами
     private fun askMusicInfoIfMissing() {
-        if (titleKnown || !phoneConnected || appId != APP_ID_BTAV || musicInfoAttemptsLeft <= 0) return
+        if (titleKnown || !phoneConnected || musicInfoAttemptsLeft <= 0) return
         val now = SystemClock.elapsedRealtime()
         if (now - musicInfoAskedAt < MUSIC_INFO_INTERVAL_MS) return
         musicInfoAskedAt = now
