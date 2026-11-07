@@ -552,7 +552,8 @@
     .media-expanded #progressWrap { margin-top: 14px; }
 
     /* Текст песни: обложка сворачивается в миниатюру рядом с названием, строки занимают её место */
-    .lyrics-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; min-width: 0; }
+    .lyrics-head { position: relative; display: flex; align-items: center; gap: 12px; margin-bottom: 10px; min-width: 0; }
+    .cover-mini-ghost { position: absolute; margin: 0; pointer-events: none; }
     .cover-mini { width: 48px; height: 48px; flex-shrink: 0; overflow: hidden; padding: 0; border-radius: 8px; }
     .lyrics-head-text { min-width: 0; }
     .lyrics-head-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 17px; font-weight: 600; line-height: 1.25; }
@@ -2058,11 +2059,13 @@
       const applyContent = () => {
         if (contentApplied) return;
         contentApplied = true;
+        const miniBefore = showLyrics && wasLyrics && !reduced ? captureMiniCover() : null;
         elPanelView.classList.toggle("lyrics-mode", showLyrics);
         lyricsHead.classList.toggle("hidden", !showLyrics);
         lyricsView.classList.toggle("hidden", !showLyrics);
         elTrackText.classList.toggle("hidden", showLyrics);
         coverMini.classList.toggle("hidden", !coverPresent);
+        if (miniBefore) animateMiniCoverToggle(miniBefore, headChanged);
         if (showLyrics) {
           setText(headTitle, track.title);
           setText(document.getElementById("lyricsHeadArtist"), track.artist);
@@ -2102,6 +2105,38 @@
       coverButton.setAttribute("aria-label", !lyricRows.length ? (lang === "en" ? "Album art" : "Обложка") : (lang === "en" ? "Show lyrics" : "Показать текст песни"));
       coverMini.setAttribute("aria-label", lang === "en" ? "Hide lyrics" : "Скрыть текст песни");
       if (showLyrics) renderLyrics(true);
+    }
+
+    // Шапка экрана текста: обложка появляется и исчезает плавно, а название съезжает на освободившееся место
+    const MINI_COVER_MS = 420;
+    const MINI_COVER_EASE = "cubic-bezier(.4,0,.2,1)";
+    function captureMiniCover() {
+      const text = lyricsHead.querySelector(".lyrics-head-text");
+      return { shown: coverMini.getClientRects().length > 0, textLeft: text.getBoundingClientRect().left,
+        rect: coverMini.getClientRects().length ? { left: coverMini.offsetLeft, top: coverMini.offsetTop } : null };
+    }
+    function animateMiniCoverToggle(before, headChanged) {
+      const shown = coverMini.getClientRects().length > 0;
+      if (shown === before.shown) return;
+      const text = lyricsHead.querySelector(".lyrics-head-text");
+      const shift = before.textLeft - text.getBoundingClientRect().left;
+      // при смене трека название и так проявляется заново, сдвиг поверх него читается как рывок
+      if (shift && !headChanged) text.animate([{ transform: `translateX(${shift}px)` }, { transform: "none" }], { duration: MINI_COVER_MS, easing: MINI_COVER_EASE });
+      if (shown) {
+        coverMini.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "none" }], { duration: MINI_COVER_MS, easing: MINI_COVER_EASE });
+        return;
+      }
+      const ghost = coverMini.cloneNode(true);
+      ghost.removeAttribute("id");
+      ghost.querySelectorAll("[id]").forEach(el => el.removeAttribute("id"));
+      ghost.setAttribute("aria-hidden", "true");
+      ghost.classList.remove("hidden");
+      ghost.classList.add("cover-mini-ghost");
+      ghost.style.left = `${before.rect.left}px`;
+      ghost.style.top = `${before.rect.top}px`;
+      lyricsHead.append(ghost);
+      ghost.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.6)" }], { duration: MINI_COVER_MS * .7, easing: "ease-in", fill: "forwards" })
+        .finished.then(() => ghost.remove(), () => ghost.remove());
     }
 
     function setCover(value) {
@@ -2145,6 +2180,10 @@
               el.insertAdjacentElement("afterend", old);
               old.addEventListener("animationend", () => old.remove(), { once: true });
             });
+            if (coverMini.getClientRects().length) {
+              coverMiniImage.animate([{ opacity: 0, transform: "scale(1.25)" }, { opacity: 1, transform: "none" }], { duration: 700, easing: MINI_COVER_EASE });
+              coverMini.animate([{ transform: "none" }, { transform: "scale(.9)" }, { transform: "none" }], { duration: 520, easing: MINI_COVER_EASE });
+            }
             void coverWash.offsetWidth;
             coverWash.classList.add("entering");
             coverWash.onanimationend = event => { if (event.animationName === "wash-enter") coverWash.classList.remove("entering"); };
