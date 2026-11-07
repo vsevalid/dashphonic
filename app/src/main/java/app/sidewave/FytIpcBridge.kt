@@ -109,6 +109,9 @@ class FytIpcBridge(
         // Остальные коды MAIN только пишем в debugState: так на магнитоле видно, какие данные прошивка отдаёт вообще
         val MAIN_PROBE_CODES = (0..150).filter { it !in MAIN_CODES }
         val RADIO_CODES = intArrayOf(U_RADIO_FREQ, U_RADIO_RDS_TEXT, U_RADIO_PS_TEXT, U_RADIO_POWER)
+        val TRACK_CODES = intArrayOf(U_BTAV_ID3_TITLE, U_BTAV_ID3_ARTIST, U_BTAV_ID3_ALBUM, U_BTAV_TOTAL_TIME)
+        // AVRCP поднимается через несколько секунд после HFP, ms к этому времени успевает обновить свои значения
+        private val TRACK_REFRESH_DELAYS_MS = longArrayOf(2_000L, 6_000L)
 
         // Стоковое приложение повторяет запрос источника каждые 300 мс, пока прошивка его не примет
         private const val SOURCE_RETRY_MS = 300L
@@ -178,7 +181,9 @@ class FytIpcBridge(
                 U_A2DP_SINK_STATE -> i0?.let { patch.put("a2dp", it) }
                 U_HFP -> i0?.let { patch.put("hfp", it) }
                 U_PHONE_STATE -> i0?.let {
-                    phoneConnected = it in PHONE_CONNECTED_STATES
+                    val connected = it in PHONE_CONNECTED_STATES
+                    if (connected && !phoneConnected) scheduleTrackRefresh()
+                    phoneConnected = connected
                     patch.put("phoneConnected", phoneConnected)
                 }
                 U_PHONE_NAME -> patch.put("phoneName", s0.orEmpty())
@@ -387,6 +392,31 @@ class FytIpcBridge(
 
     private var relinkAddr = ""
     private val relink = Runnable { btCmd(C_CONNECT_DEVICE, strs = arrayOf(relinkAddr)) }
+
+    // ms присылает значение только при изменении. Если телефон переподключился и играет тот же трек,
+    // название заново не придёт, а панель его уже стёрла. Повторная подписка с флагом 1 заставляет ms
+    // сразу отдать то, что у него сейчас, поэтому показываем текущий трек, а не запомненный.
+    fun refreshTrack() = handler.post { resubscribeTrack() }
+
+    private val refreshTrackLater = Runnable { resubscribeTrack() }
+
+    private fun scheduleTrackRefresh() {
+        handler.removeCallbacks(refreshTrackLater)
+        TRACK_REFRESH_DELAYS_MS.forEach { handler.postDelayed(refreshTrackLater, it) }
+    }
+
+    private fun resubscribeTrack() {
+        val module = btModule ?: return
+        if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Track resubscribe")
+        try {
+            TRACK_CODES.forEach {
+                module.unregister(btCallback, it)
+                module.register(btCallback, it, 1)
+            }
+        } catch (e: RemoteException) {
+            Log.w(TAG, "Трек не перезапрошен", e)
+        }
+    }
 
     fun setAutoResume(enabled: Boolean) {
         prefs.edit().putBoolean(PREF_AUTO_RESUME, enabled).apply()

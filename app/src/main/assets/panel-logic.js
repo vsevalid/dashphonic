@@ -45,14 +45,16 @@
     return elapsed >= 0 && elapsed <= 400 && Math.hypot(tap.x - previous.x, tap.y - previous.y) <= 32;
   }
 
-  function batteryPercent(raw) {
+  // Прошивка отдаёт уровень HFP 0–5 (иногда 0–9 или проценты): точного процента из него не получить,
+  // поэтому панель показывает только уровень из пяти делений
+  function batteryLevel(raw) {
     const text = String(raw).trim();
     if (!/^\d{1,3}%?$/.test(text)) return null;
     const value = parseInt(text, 10);
     if (value > 100) return null;
-    if (text.endsWith('%') || value >= 10) return value;
-    if (value <= 5) return value * 20;
-    return (value + 1) * 10;
+    if (text.endsWith('%') || value >= 10) return Math.ceil(value / 20);
+    if (value <= 5) return value;
+    return Math.ceil((value + 1) / 2);
   }
 
   function connectedPhoneName(original, devices, aliases) {
@@ -180,5 +182,5 @@
     return trip.activeMs + (trip.activeFrom === null ? 0 : Math.max(0, now - trip.activeFrom));
   }
 
-  return { mediaOrder, isDoubleTap, createPlaybackState, batteryPercent, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, TRIP_GAP_MS, TRIP_BIN_MS };
+  return { mediaOrder, isDoubleTap, createPlaybackState, batteryLevel, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, TRIP_GAP_MS, TRIP_BIN_MS };
 });

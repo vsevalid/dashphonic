@@ -143,6 +143,7 @@ class MainActivity : AppCompatActivity() {
                     "MEDIA_ART" -> mediaLookup.request("art", value)
                     "MEDIA_LYRICS" -> mediaLookup.request("lyrics", value)
                     "AUTO_RESUME" -> fytBridge.setAutoResume(value == "1")
+                    "TRACK_REFRESH" -> fytBridge.refreshTrack()
                     "WEATHER" -> runOnUiThread { weatherEnabled = true; requestWeather(value) }
                     "WEATHER_GEO_PERMISSION" -> runOnUiThread { requestLocationAccess() }
                     "GEOCODE" -> searchCity(value)

@@ -3,6 +3,8 @@
 
     <!-- Сеть: обложки, тексты, погода и обновления. Геопозиция: только погода, запрашивается по кнопке -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- без него WebView не знает о пропаже сети и navigator.onLine всегда true -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
