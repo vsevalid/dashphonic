@@ -1,0 +1,74 @@
+name: Test build
+
+# Ветка test/* → APK с релизным ключом и диагностикой: ставится поверх релиза без потери данных.
+# Версия = последний релиз + суффикс -test, поэтому автообновление по-прежнему предложит следующий релиз.
+on:
+  push:
+    branches: ['test/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Version from last release
+        id: version
+        run: |
+          TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*')
+          [[ "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
+          echo "name=${TAG#v}-test.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "code=$((BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3]))" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android API 34
+        run: |
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' | head -1)
+          yes | "$SDKM" --licenses >/dev/null || true
+          "$SDKM" 'platforms;android-34' 'build-tools;34.0.0'
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          gradle-version: '8.2.1'
+
+      - name: Panel tests
+        run: node --test tests/*.test.cjs
+
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.DASHPHONIC_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "DASHPHONIC_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Signed test APK
+        env:
+          DASHPHONIC_KEYSTORE_PASSWORD: ${{ secrets.DASHPHONIC_KEYSTORE_PASSWORD }}
+          DASHPHONIC_KEY_ALIAS: ${{ secrets.DASHPHONIC_KEY_ALIAS }}
+          DASHPHONIC_KEY_PASSWORD: ${{ secrets.DASHPHONIC_KEY_PASSWORD }}
+        run: |
+          gradle --no-daemon :app:assembleRelease -PversionName=${{ steps.version.outputs.name }} -PversionCode=${{ steps.version.outputs.code }} -Pdiagnostics=true
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify "$APK"
+          cp "$APK" "dashphonic-${{ steps.version.outputs.name }}.apk"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dashphonic-${{ steps.version.outputs.name }}
+          path: dashphonic-*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"

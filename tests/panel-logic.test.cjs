@@ -17,14 +17,17 @@ test('LRC timestamps are parsed, sorted and followed at the right second', () =>
   assert.equal(logic.lyricIndex(rows, 100), 2);
 });
 
-test('phone battery readings remain within bounds', () => {
-  assert.equal(logic.batteryPercent('05'), 100);
-  assert.equal(logic.batteryPercent('10'), 10);
-  assert.equal(logic.batteryPercent('10%'), 10);
-  assert.equal(logic.batteryPercent('85'), 85);
-  assert.equal(logic.batteryPercent('101'), null);
-  assert.equal(logic.batteryPercent('-5'), null);
-  assert.equal(logic.batteryPercent(''), null);
+test('phone battery readings become a five-step level', () => {
+  assert.equal(logic.batteryLevel('03'), 3);
+  assert.equal(logic.batteryLevel('05'), 5);
+  assert.equal(logic.batteryLevel('0'), 0);
+  assert.equal(logic.batteryLevel('9'), 5);
+  assert.equal(logic.batteryLevel('44'), 3);
+  assert.equal(logic.batteryLevel('10%'), 1);
+  assert.equal(logic.batteryLevel('100'), 5);
+  assert.equal(logic.batteryLevel('101'), null);
+  assert.equal(logic.batteryLevel('-5'), null);
+  assert.equal(logic.batteryLevel(''), null);
 });
 
 test('a trip survives a restart when voltage has not changed recently', () => {
