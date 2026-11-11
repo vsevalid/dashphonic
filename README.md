@@ -1,114 +1,175 @@
 # Dashphonic
 
-A Bluetooth music panel and clock for FYT head units. Dashphonic is designed to work well in a side panel.
+Bluetooth music panel and clock for FYT Android head units.
 
-[Русская версия](README.ru.md)
+See what's playing on your phone, change tracks and adjust volume in a narrow side panel, with room for navigation beside it. Dashphonic reads media data directly from FYT firmware, including music that ordinary Android widgets cannot see.
 
-<p align="center"><img src="docs/media/dashphonic-demo.gif" width="320" alt="Dashphonic changing tracks, showing synced lyrics and switching to the trip screen"></p>
+**[Download APK](https://github.com/vsevalid/dashphonic/releases/latest)** · [Compatibility](#compatibility) · [Installation](#installation) · [Русский](README.ru.md)
 
-![Player with album art, player without art in the light theme, synced lyrics, FM radio](docs/media/dashphonic-screens.png)
+![Dashphonic in four modes: album artwork, light theme without artwork, synced lyrics and FM radio](docs/media/dashphonic-screens.png)
 
-## Why it exists
+<details>
+<summary>Watch the demo: track changes, synced lyrics and the trip screen</summary>
 
-On FYT firmware the Bluetooth player lives inside the system service `com.syu.ms` and does not publish an Android `MediaSession`. Widgets and players from Google Play see nothing while music plays from the phone. Dashphonic talks to that service over its AIDL interface (`com.syu.ipc.IRemoteToolkit`) and listens to the firmware broadcasts, so it gets the track title, artist, position and volume directly.
+<p align="center"><img src="docs/media/dashphonic-demo.gif" width="368" height="710" alt="Dashphonic changing tracks, showing synced lyrics and opening the trip voltage chart"></p>
+
+</details>
 
 ## Features
 
-- Track title, artist and progress from the phone, with play, pause and track controls
-- Gestures: swipe left or right to change track, double-tap to pause, slide the bottom bar or drag two fingers up and down for volume
-- Album art (iTunes Search, then MusicBrainz and Cover Art Archive) and synced lyrics (LRCLIB). Both can be turned off, and then the app makes no requests for them
-- Bluetooth: connect a paired phone, search for new devices, give devices your own names
-- Clock, date, outside temperature from Open-Meteo, phone battery level
-- Car voltage with a chart for the current trip
-- Light and dark themes, switched by headlights or by time, a quiet Zen mode, a choice of fonts, Russian and English
-- Updates from GitHub Releases inside the app
+- Track title, artist and progress from your phone, with playback buttons and touch gestures.
+- Album artwork and synced lyrics, each with its own off switch. Zen mode hides both and stops their network requests.
+- A Bluetooth device list to connect paired phones, find nearby devices and give them names within the app.
+- A clock, date, outside temperature, phone battery level and a voltage chart for the current trip. Battery and voltage readings depend on the data your phone and firmware provide.
+- FM station information and a button to switch back to Bluetooth.
+- Light and dark themes, automatic switching by headlights or time, a choice of fonts, and English and Russian interfaces.
+- Updates from GitHub Releases, checked and installed from the app.
+- Hold a trip voltage peak to inspect it, scroll through long trips and pinch to change the horizontal scale. Optional reverse-gear pause waits for 1 second in R and resumes only playback it paused.
 
-## Supported devices
+## Compatibility
 
-Built and tested on an Ekiy T7 (FYT UIS7862, Android 10). Other FYT head units on UIS7862 or UIS8581 with the `com.syu.ms` service should work too. If you try it on another model, please open an issue and say what works.
+| Head unit | Status |
+| --- | --- |
+| Ekiy T7, FYT UIS7862, Android 10 | Built and tested on this device |
+| Other FYT units on UIS7862 or UIS8581 | Expected to work with the `com.syu.ms` service; not confirmed on every model |
+| Phones, tablets and non-FYT head units | Outside the intended device range; media integration requires FYT firmware services |
 
-The app id is `com.ava.car`. FYT firmware sends media broadcasts only to a whitelist of packages, and this id is on it. Because of that, Dashphonic cannot be installed next to another app that already uses `com.ava.car`.
+The APK requires Android 9 (API 28) or later. The Android version alone does not establish FYT compatibility. If you test another head unit, [report your model, firmware and what works](https://github.com/vsevalid/dashphonic/issues).
 
-## Install
+**Package conflict:** Dashphonic uses the application ID `com.ava.car`, which FYT firmware whitelists for media broadcasts. It cannot be installed alongside another app with that ID.
 
-1. Download `dashphonic-X.Y.Z.apk` from [Releases](../../releases/latest).
-2. Copy it to a USB stick or open the link in the head unit browser, then install it. Android will ask to allow installs from that source.
-3. Open Dashphonic on its own or in a split-screen panel.
-4. A short tutorial runs on first launch. You can run it again from Settings → How to use.
+## Installation
 
-Later updates arrive in the app: Settings → App shows the installed version and installs a new one. Automatic checks run at most twice a day and can be turned off.
+1. Open the [latest release](https://github.com/vsevalid/dashphonic/releases/latest) and download `dashphonic-X.Y.Z.apk` from **Assets**. The source archives are not installable apps.
+2. Open the APK on the head unit, either from a USB stick or after downloading it in the head unit's browser. Allow installation from that source when Android asks.
+3. Launch Dashphonic on its own or place it in your launcher's split-screen panel.
+4. Connect your phone over Bluetooth and start playback. The first-launch tutorial explains the controls; open **Settings → How to use** to replay it.
 
-If a previous build has a different signing key or a higher Android version code, Android will require you to uninstall it before installing this release. Uninstalling removes the app’s local settings and history.
+For later updates, tap the clock and open **Settings → App**. Automatic release checks run at most once every 12 hours and can be disabled.
 
-## Using Dashphonic
+If an installed build uses a different signing key or a higher Android version code, Android may require you to uninstall it before installing the release. **Uninstalling removes local settings and history.**
 
-Swipe left or right to change tracks and double-tap to pause. Adjust volume with two fingers or the bar at the bottom. Tap the voltage reading, when available, to open the current trip chart. Tap the clock for settings.
+## Controls
 
-## Privacy
+| Action | Gesture or control |
+| --- | --- |
+| Next / previous track | Swipe left / right, or use the playback buttons |
+| Play / pause | Double-tap the player area, or use the play/pause button |
+| Adjust volume | Drag the bottom volume bar, or move two fingers up / down |
+| Show synced lyrics | Tap the album cover when lyrics are available; tap the small cover to return |
+| Open Bluetooth devices | Tap the phone row at the bottom |
+| Open the trip voltage chart | Tap the voltage reading, when available |
+| Inspect a voltage peak | Hold the chart: the large voltage and its status switch to the selected value and time. Release to restore live readings. |
+| Scroll or zoom the trip chart | One hour fits the screen by default; longer trips scroll horizontally. Pinch to zoom in or out. Keyboard: hold arrows or Home / End to inspect, + / − to zoom, 0 to restore the hourly scale. |
+| Open settings | Tap the clock |
 
-Dashphonic has no accounts, analytics or ads. Settings, trip voltage history and cached covers and lyrics stay on the head unit, and Android backup is disabled.
+Enable **Settings → Music → Pause in reverse** to pause Bluetooth music after R has stayed active for 1 second. Passing through R more quickly does nothing. After leaving R for 250 ms, Dashphonic resumes only if it sent the pause and received confirmation. Manual playback controls, a different audio source, calls, phone or service disconnection, and ignition off cancel automatic resumption. This option is off by default and requires the FYT reverse signal (`MAIN / U_BACKCAR`, code 12) and the firmware's idle Bluetooth phone state. Hardware verification is pending.
 
-The app makes network requests only for features you use:
+The trip chart shows voltage, not battery charge percentage. New history retains timestamps for minimum and maximum readings when samples are grouped; older history may show a time interval for a peak whose exact timestamp was not recorded.
 
-| Feature | Service | What is sent |
+## Offline use and missing data
+
+The clock, Bluetooth controls, track data from the head unit and trip voltage history work without internet. Saved artwork and lyrics load from the Android disk cache before any network lookup, including when the phone initially reports an unknown track duration. Positive cached results do not expire by age; bounded cache storage and Android cache cleanup can still remove them. Lyrics for a known different track duration are not reused. Weather shows the last cached reading with a stale-data indicator. New artwork, lyrics, weather readings and update checks need a connection.
+
+| Symptom | What to check |
+| --- | --- |
+| Android will not install the APK | Check for another `com.ava.car` app, a different signing key or a higher installed version code. See [Installation](#installation) before uninstalling. |
+| Music plays but track details are missing | Check that the phone is connected to the head unit's Bluetooth system and that the unit has compatible FYT firmware. Include the model and firmware in an issue if the problem persists. |
+| Artwork or lyrics do not appear | Check the connection, the individual feature switches and Zen mode. The online services may have no match for the track, even when connected. |
+| Battery or voltage is absent | These readings depend on what the phone and head unit firmware report. |
+
+## Privacy and network access
+
+Dashphonic has no accounts, analytics or ads. Settings, trip voltage history and cached artwork and lyrics stay on the head unit. Android backup is disabled.
+
+| Feature | External services | Request data |
 | --- | --- | --- |
-| Album art | itunes.apple.com, mzstatic.com, musicbrainz.org, coverartarchive.org, archive.org | artist and track title |
-| Lyrics | lrclib.net | artist, track title, duration |
-| Weather | open-meteo.com | coordinates or the city you typed |
-| Updates | api.github.com, github.com | nothing beyond a normal request |
+| Artwork search | iTunes Search, then MusicBrainz | Artist and track title |
+| Artwork downloads | Apple image hosts, Cover Art Archive / Internet Archive | Image URLs returned by the artwork services |
+| Synced lyrics | LRCLIB | Artist, track title and duration when available |
+| Weather | Open-Meteo forecast and geocoding APIs | Coordinates for forecasts; the city you enter for city search |
+| Updates | GitHub API and release downloads | Release checks and APK downloads; the updater sends the app version in its User-Agent |
 
-Location permission is requested only when you choose current location for the weather.
+Artwork and lyric lookup requests also include the app version and repository URL in their User-Agent. External services receive normal connection metadata, including the requesting IP address.
 
-## Build
+Turn off artwork or lyrics to stop requests for that feature. Zen mode stops both. Location permission is requested only when you choose your current location for weather; you can enter a city instead.
 
-GitHub Actions builds a debug APK on every push and pull request (`.github/workflows/build.yml`). To build locally you need JDK 17, the Android SDK with API 34 and Gradle 8.2:
+## How FYT integration works
+
+On the target FYT firmware, the Bluetooth player runs inside `com.syu.ms` without publishing an Android `MediaSession`. This prevents ordinary Android media widgets from seeing music played from the phone. Dashphonic uses the service's AIDL interface, `com.syu.ipc.IRemoteToolkit`, and firmware broadcasts to read track information, playback position and volume directly.
+
+The Android layer is written in Kotlin. The panel runs in a WebView using local HTML, CSS and JavaScript assets. The FYT bridge is in [`FytIpcBridge.kt`](app/src/main/java/app/sidewave/FytIpcBridge.kt), and the interface starts in [`panel.html`](app/src/main/assets/panel.html).
+
+## Development
+
+### Build a debug APK
+
+Use JDK 17, Android SDK Platform 34, Build Tools 34.0.0 and Gradle 8.2.1, matching [CI](.github/workflows/build.yml). Gradle must be installed separately; the repository does not include a Gradle wrapper. Set `ANDROID_HOME` to your SDK installation, or set `sdk.dir` in a local `local.properties` file.
 
 ```bash
+git clone https://github.com/vsevalid/dashphonic.git
+cd dashphonic
 gradle :app:assembleDebug
 ```
 
-The panel is a single page, `app/src/main/assets/panel.html`. Open it in a browser through any static server to work on the interface with demo data:
+The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions also runs the panel tests and builds a debug APK on pushes and pull requests.
+
+### Preview the panel in a browser
+
+From the repository root, serve the assets with Python 3:
 
 ```bash
 python3 -m http.server 8766 --directory app/src/main/assets
 ```
 
-Tests for the panel logic run on Node:
+Open [localhost:8766/panel.html](http://localhost:8766/panel.html). The browser preview uses demo data; it does not test the head unit's Bluetooth or FYT integration.
+
+### Run the panel tests
+
+With Node.js and JDK 17 or later installed, run from the repository root (the reverse-pause tests compile the Java controller):
 
 ```bash
 node --test tests/*.test.cjs
 ```
 
-## Releases from your fork
+### Publish releases from a fork
 
-The in-app updater reads releases of the repository the APK was built from, so a fork updates from itself.
+<details>
+<summary>Signing, tags and the in-app update source</summary>
 
-1. Create a signing key and add it to the repository secrets. The script prints the `gh secret set` commands:
+The updater reads releases from the repository the APK was built from. GitHub Actions sets this from `GITHUB_REPOSITORY`; for local fork builds, pass `-PgithubRepo=OWNER/REPO` to Gradle. Without either setting, local builds use `vsevalid/dashphonic`.
+
+1. Create a release signing key:
 
    ```bash
    scripts/create-release-key.sh
    ```
 
-2. Push a tag:
+   With `gh` authenticated to your fork, run the `gh secret set` commands the script prints from the fork's repository directory. Keep a backup of the key and its password.
+
+2. Choose an unused `vX.Y.Z` tag, for example:
 
    ```bash
-   git tag v1.0.0 && git push origin v1.0.0
+   git tag v1.0.5
+   git push origin v1.0.5
    ```
 
-`.github/workflows/release.yml` builds the signed APK, sets `versionCode` from the tag (v1.2.3 becomes 10203) and publishes the release. Keep a backup of the key: an APK signed with a different key will not install over the existing app.
+The [release workflow](.github/workflows/release.yml) runs the tests, builds and verifies the signed APK, and publishes it. It derives `versionCode` from the tag: `v1.2.3` becomes `10203`. Minor and patch numbers must each be below 100. A release signed with a different key cannot update an existing installation in place.
+
+</details>
+
+## Help and contributions
+
+[Open an issue](https://github.com/vsevalid/dashphonic/issues) with your head unit model, Android and firmware versions, steps to reproduce, and expected and actual behavior. Reports from other FYT models help establish compatibility. Remove private information and device identifiers from logs and screenshots before posting.
+
+For a code change, fork the repository, create a branch, run the panel tests and build a debug APK. In the pull request, describe the change and how you tested it. Include the head unit model and firmware if you tested on hardware. Keep signing keys and generated APKs out of the repository.
+
+## Support
+
+If Dashphonic is useful to you, you can [buy me a coffee](https://buymeacoffee.com/vsevalid) to support its development.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Bundled fonts are under the SIL Open Font License, the license files are next to them in `app/src/main/assets/fonts`.
+[MIT](LICENSE). Bundled fonts use the SIL Open Font License; their license files are in [`app/src/main/assets/fonts`](app/src/main/assets/fonts).
 
-## Without an internet connection
-
-The interface, clock, Bluetooth controls, track information received from the head unit, and trip voltage history work without internet. Weather uses the last cached reading, marked as stale. New artwork, lyrics, weather readings and release checks need a connection; a track may also have no artwork or synced lyrics even when online. Zen mode does not request artwork or lyrics.
-
-## Contributing
-
-Issues and pull requests are welcome. Include your head unit model, Android and firmware versions, steps to reproduce, and expected and actual behavior. Remove device identifiers and private information from logs or screenshots before posting.
-
-For a change, fork the repository, create a branch, run the Node tests and build the debug APK. Describe the change and how you tested it in the pull request. FYT integration depends on firmware; if you test on hardware, include the model and firmware version. Keep changes focused and avoid committing signing keys or generated APKs.
-
-The launcher icon is based on the supplied Dashphonic artwork. The rest of the project is licensed as described below.
+The launcher icon is based on the supplied Dashphonic artwork.
