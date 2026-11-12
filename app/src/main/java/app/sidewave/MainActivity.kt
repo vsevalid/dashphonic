@@ -143,6 +143,7 @@ class MainActivity : AppCompatActivity() {
                     "MEDIA_ART" -> mediaLookup.request("art", value)
                     "MEDIA_LYRICS" -> mediaLookup.request("lyrics", value)
                     "AUTO_RESUME" -> fytBridge.setAutoResume(value == "1")
+                    "REVERSE_PAUSE" -> fytBridge.setReversePause(value == "1")
                     "TRACK_REFRESH" -> fytBridge.refreshTrack()
                     "FYT_RAW" -> fytBridge.rawCmd(value)
                     "WEATHER" -> runOnUiThread { weatherEnabled = true; requestWeather(value) }

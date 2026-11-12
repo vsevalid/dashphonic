@@ -98,6 +98,8 @@ class FytIpcBridge(
         const val APP_ID_RADIO = 1
         const val APP_ID_BTAV = 3
         const val U_LAMPLET = 4
+        // FinalMain.U_BACKCAR, the firmware's reverse input (not the selected camera view).
+        const val U_BACKCAR = 12
         // Наружная температура, как её читает OutTempView в SystemUI прошивки; разбор значения в панели
         const val U_OUT_TEMP = 40
         const val U_ACC_ON = 50
@@ -110,7 +112,7 @@ class FytIpcBridge(
             U_HFP, U_BTAV_ID3_ALBUM, U_BTAV_PLAY_TIME, U_A2DP_SINK_STATE, U_PHONE_BATTERY
         )
         val SOUND_CODES = intArrayOf(U_SOUND_VOL, U_SOUND_MUTE)
-        val MAIN_CODES = intArrayOf(U_APP_ID, U_LAMPLET, U_OUT_TEMP, U_ACC_ON, U_CAR_BATTERY_VOLTAGE)
+        val MAIN_CODES = intArrayOf(U_APP_ID, U_LAMPLET, U_BACKCAR, U_OUT_TEMP, U_ACC_ON, U_CAR_BATTERY_VOLTAGE)
         // Остальные коды MAIN только пишем в debugState: так на магнитоле видно, какие данные прошивка отдаёт вообще
         val MAIN_PROBE_CODES = (0..150).filter { it !in MAIN_CODES }
         val RADIO_CODES = intArrayOf(U_RADIO_FREQ, U_RADIO_RDS_TEXT, U_RADIO_PS_TEXT, U_RADIO_POWER)
@@ -134,6 +136,7 @@ class FytIpcBridge(
         private const val PREFS = "panel"
         private const val PREF_AUTO_RESUME = "autoResume"
         private const val PREF_RESUME_PENDING = "resumePending"
+        private const val PREF_REVERSE_PAUSE = "reversePause"
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -166,6 +169,11 @@ class FytIpcBridge(
     private var musicInfoAttemptsLeft = MUSIC_INFO_ATTEMPTS
     @Volatile private var phoneConnected = false
     private var accOn: Boolean? = null
+    @Volatile private var phoneState = -1
+    @Volatile private var reverseInput: Boolean? = null
+    private val reversePause = ReversePauseController().apply {
+        configure(prefs.getBoolean(PREF_REVERSE_PAUSE, false))
+    }
 
     private var sourceRetriesLeft = 0
     private val pendingBtCommands = ArrayDeque<Pair<Int, Int>>()
@@ -207,15 +215,19 @@ class FytIpcBridge(
                     playing = nowPlaying
                     if (nowPlaying) handler.post { claimBtSourceIfIdle() }
                     patch.put("playing", nowPlaying)
+                    val receivedAt = SystemClock.elapsedRealtime()
+                    handler.post { reversePause.onPlayback(nowPlaying, receivedAt); evaluateReversePause() }
                 }
                 U_A2DP_SINK_STATE -> i0?.let { patch.put("a2dp", it) }
                 U_HFP -> i0?.let { patch.put("hfp", it) }
                 U_PHONE_STATE -> i0?.let {
+                    phoneState = it
                     val connected = it in PHONE_CONNECTED_STATES
                     if (connected != phoneConnected) handler.post { musicInfoAttemptsLeft = MUSIC_INFO_ATTEMPTS }
                     if (connected && !phoneConnected) scheduleTrackRefresh()
                     phoneConnected = connected
                     patch.put("phoneConnected", phoneConnected)
+                    handler.post { if (it != 2) reversePause.cancel(); evaluateReversePause() }
                 }
                 U_PHONE_NAME -> patch.put("phoneName", s0.orEmpty())
                 // формат строки в прошивке не описан: страница разбирает её сама
@@ -263,9 +275,20 @@ class FytIpcBridge(
                 U_CAR_BATTERY_VOLTAGE -> onPatch(JSONObject().put("carVoltageRaw", i0))
                 U_LAMPLET -> onPatch(JSONObject().put("headlights", i0 != 0))
                 U_OUT_TEMP -> onPatch(JSONObject().put("outTempRaw", i0))
+                U_BACKCAR -> {
+                    val on = when (i0) { 0 -> false; 1 -> true; else -> null }
+                    reverseInput = on
+                    val receivedAt = SystemClock.elapsedRealtime()
+                    handler.post {
+                        if (on == null) reversePause.reset() else reversePause.onReverse(on, receivedAt)
+                        onPatch(JSONObject().put("reverse", on ?: JSONObject.NULL))
+                        evaluateReversePause()
+                    }
+                }
                 U_APP_ID -> {
                     appId = i0
                     onPatch(JSONObject().put("source", i0))
+                    handler.post { if (i0 != APP_ID_BTAV) reversePause.cancel(); evaluateReversePause() }
                     if (i0 == APP_ID_BTAV) handler.post {
                         onBtSourceReady()
                         // без выбранного источника прошивка могла не получить название: перезапрашиваем
@@ -337,6 +360,9 @@ class FytIpcBridge(
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            reverseInput = null
+            phoneState = -1
+            handler.post { reversePause.reset(); handler.removeCallbacks(reverseTick) }
             serviceConnected = false
             registrationComplete = false
             if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.w(TAG, "Service disconnected: $name")
@@ -350,6 +376,7 @@ class FytIpcBridge(
 
     fun bindFytService() {
         onPatch(JSONObject().put("autoResume", autoResumeEnabled()))
+        onPatch(JSONObject().put("reversePause", prefs.getBoolean(PREF_REVERSE_PAUSE, false)))
         val intent = Intent("com.syu.ms.toolkit").setPackage("com.syu.ms")
         serviceBound = context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "bindService accepted=$serviceBound")
@@ -360,6 +387,7 @@ class FytIpcBridge(
     }
 
     fun unbindFytService() {
+        reversePause.reset()
         handler.removeCallbacksAndMessages(null)
         try {
             MAIN_CODES.forEach { mainModule?.unregister(mainCallback, it) }
@@ -381,11 +409,13 @@ class FytIpcBridge(
     private fun radioActive() = appId == APP_ID_RADIO && radioModule != null
 
     fun play() = handler.post {
+        reversePause.cancel()
         if (radioActive()) radioCmd(C_RADIO_POWER, 1)
         else requestBtCommand(C_BTAV_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY)
     }
 
     fun pause() = handler.post {
+        reversePause.cancel()
         pendingBtCommands.clear()
         handler.removeCallbacks(retrySource)
         sourceRetriesLeft = 0
@@ -394,11 +424,13 @@ class FytIpcBridge(
     }
 
     fun nextTrack() = handler.post {
+        reversePause.cancel()
         if (radioActive()) radioCmd(C_RADIO_NEXT_CHANNEL)
         else requestBtCommand(C_BTAV_NEXT, KeyEvent.KEYCODE_MEDIA_NEXT)
     }
 
     fun prevTrack() = handler.post {
+        reversePause.cancel()
         if (radioActive()) radioCmd(C_RADIO_PREV_CHANNEL)
         else requestBtCommand(C_BTAV_PREV, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
     }
@@ -406,6 +438,7 @@ class FytIpcBridge(
     // Play идёт через источник BT: без него прошивка принимает команду, но звук не выводит,
     // пока стоковое приложение Bluetooth не открыто на вкладке музыки
     fun playBt() = handler.post {
+        reversePause.cancel()
         requestBtCommand(C_BTAV_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY)
     }
 
@@ -415,6 +448,7 @@ class FytIpcBridge(
 
     // Пока подключён другой телефон, модуль игнорирует C_CONNECT_DEVICE: сначала рвём связь
     fun connectDevice(addr: String) = handler.post {
+        reversePause.cancel()
         if (addr.isBlank()) return@post
         handler.removeCallbacks(relink)
         relinkAddr = addr
@@ -461,6 +495,36 @@ class FytIpcBridge(
 
     private fun autoResumeEnabled() = prefs.getBoolean(PREF_AUTO_RESUME, true)
 
+    fun setReversePause(enabled: Boolean) = handler.post {
+        prefs.edit().putBoolean(PREF_REVERSE_PAUSE, enabled).apply()
+        reversePause.configure(enabled)
+        onPatch(JSONObject().put("reversePause", enabled))
+        // Enabling while already reversing requires a new R transition, never a retroactive pause.
+        evaluateReversePause()
+    }
+
+    private val reverseTick = Runnable { evaluateReversePause() }
+
+    private fun evaluateReversePause() {
+        handler.removeCallbacks(reverseTick)
+        if (reverseInput != reversePause.reverse()) return
+        val now = SystemClock.elapsedRealtime()
+        val eligible = serviceConnected && registrationComplete && btModule != null &&
+            accOn == true && appId == APP_ID_BTAV && phoneConnected && phoneState == 2
+        when (reversePause.tick(now, eligible, playing)) {
+            ReversePauseController.Action.PAUSE -> {
+                pendingBtCommands.clear()
+                handler.removeCallbacks(retrySource)
+                sourceRetriesLeft = 0
+                if (!btCmd(C_BTAV_PAUSE)) reversePause.cancel()
+            }
+            ReversePauseController.Action.RESUME -> btCmd(C_BTAV_PLAY)
+            ReversePauseController.Action.NONE, null -> Unit
+        }
+        val delay = reversePause.nextDelayMs(now)
+        if (delay >= 0) handler.postDelayed(reverseTick, delay)
+    }
+
     private fun requestBtCommand(code: Int, fallbackKey: Int) {
         if (btModule == null || appId == APP_ID_BTAV) {
             btCmd(code, fallbackKey)
@@ -496,6 +560,7 @@ class FytIpcBridge(
         SystemClock.elapsedRealtime() - lastPositionAt < POSITION_PLAYING_GAP_MS
 
     private fun claimBtSourceIfIdle() {
+        if (reversePause.blocksAutoPlay()) return
         if (appId != APP_ID_NONE || accOn != true || !phoneConnected || !phoneAudioActive()) return
         val now = SystemClock.elapsedRealtime()
         if (now - sourceClaimedAt < SOURCE_CLAIM_INTERVAL_MS) return
@@ -529,6 +594,9 @@ class FytIpcBridge(
         val wasOn = accOn
         accOn = on
         if (!on) {
+            reversePause.reset()
+            reverseInput = null
+            handler.removeCallbacks(reverseTick)
             handler.removeCallbacks(resumeWhenPhoneReady)
             handler.removeCallbacks(retrySource)
             pendingBtCommands.clear()
@@ -551,6 +619,10 @@ class FytIpcBridge(
     private val resumeWhenPhoneReady: Runnable = object : Runnable {
         override fun run() {
             if (accOn != true || !autoResumeEnabled() || playing) return
+            if (reversePause.blocksAutoPlay()) {
+                if (SystemClock.elapsedRealtime() < resumeDeadline) handler.postDelayed(this, RESUME_POLL_MS)
+                return
+            }
             if (phoneConnected) {
                 playBt()
             } else if (SystemClock.elapsedRealtime() < resumeDeadline) {
@@ -652,20 +724,24 @@ class FytIpcBridge(
             .put("bt", btModule != null)
             .put("sound", soundModule != null)
             .put("lastError", lastServiceError ?: JSONObject.NULL)
+            .put("reverse", reverseInput ?: JSONObject.NULL)
+            .put("reversePause", prefs.getBoolean(PREF_REVERSE_PAUSE, false))
             .put("callbackAgeMs", if (lastCallbackAt > 0) SystemClock.elapsedRealtime() - lastCallbackAt else JSONObject.NULL))
         .toString()
 
-    private fun btCmd(code: Int, fallbackKey: Int? = null, ints: IntArray? = null, strs: Array<String>? = null) {
+    private fun btCmd(code: Int, fallbackKey: Int? = null, ints: IntArray? = null, strs: Array<String>? = null): Boolean {
         val module = btModule
         if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "BT command=$code module=${module != null}")
         if (module == null) {
             fallbackKey?.let { dispatchMediaKey(it) }
-            return
+            return false
         }
         try {
             module.cmd(code, ints, null, strs)
+            return true
         } catch (e: RemoteException) {
             Log.w(TAG, "Команда BT $code не отправлена", e)
+            return false
         }
     }
 

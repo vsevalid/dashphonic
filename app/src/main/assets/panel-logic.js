@@ -141,7 +141,7 @@
     const recent = stored.bins.filter(bin => Array.isArray(bin) && bin.length >= 4 &&
       bin.slice(0, 4).every(Number.isFinite) && bin[0] >= now - TRIP_GAP_MS && bin[0] <= now);
     const trip = newTrip(recent.length ? recent[0][0] : now);
-    trip.bins = recent.map(bin => bin.slice(0, 4));
+    trip.bins = recent.map(bin => bin.slice(0, 7));
     return trip;
   }
 
@@ -180,7 +180,10 @@
     trip.start += drift;
     if (Number.isFinite(trip.activeFrom)) trip.activeFrom += drift;
     if (Number.isFinite(trip.offAt)) trip.offAt += drift;
-    for (const bin of trip.bins) if (Array.isArray(bin) && Number.isFinite(bin[0])) bin[0] += drift;
+    for (const bin of trip.bins) if (Array.isArray(bin) && Number.isFinite(bin[0])) {
+      bin[0] += drift;
+      for (const index of [4, 5, 6]) if (Number.isFinite(bin[index])) bin[index] += drift;
+    }
     return true;
   }
 
@@ -188,5 +191,84 @@
     return trip.activeMs + (trip.activeFrom === null ? 0 : Math.max(0, now - trip.activeFrom));
   }
 
-  return { mediaOrder, isDoubleTap, createPlaybackState, batteryLevel, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, TRIP_GAP_MS, TRIP_BIN_MS };
+  function voltageChartWidth(viewport, start, end, windowMs = 3600000) {
+    const span = Math.max(60000, end - start);
+    return viewport * Math.max(1, span / Math.max(60000, windowMs));
+  }
+
+  function voltageZoom(width, viewport, scroll, ratio, anchor, center, maxWidth) {
+    const next = Math.max(viewport, Math.min(maxWidth, width * ratio));
+    return { width: next, scroll: Math.max(0, Math.min(next - viewport, (scroll + anchor) / width * next - center)) };
+  }
+
+  function createVoltageGesture(callbacks, schedule = setTimeout, unschedule = clearTimeout) {
+    const pointers = new Map();
+    let phase = 'idle', timer = null, origin = null, pinch = null;
+    const stopTimer = () => { if (timer !== null) unschedule(timer); timer = null; };
+    function pinchInfo() {
+      const [a, b] = [...pointers.values()];
+      return { distance: Math.max(24, Math.hypot(a.x - b.x, a.y - b.y)), center: (a.x + b.x) / 2 };
+    }
+    return {
+      down(id, x, y) {
+        pointers.set(id, { x, y });
+        stopTimer();
+        if (pointers.size === 1) {
+          origin = { x, y }; phase = 'pending';
+          timer = schedule(() => {
+            timer = null;
+            if (phase !== 'pending' || pointers.size !== 1) return;
+            phase = 'inspect';
+            const point = pointers.values().next().value;
+            callbacks.inspect(point.x, point.y);
+          }, 220);
+        } else if (pointers.size === 2) {
+          callbacks.release(); phase = 'pinch'; pinch = pinchInfo();
+          callbacks.pinchStart(pinch.center);
+        } else { callbacks.release(); phase = 'blocked'; }
+      },
+      move(id, x, y) {
+        if (!pointers.has(id)) return;
+        pointers.set(id, { x, y });
+        if (phase === 'pinch' && pointers.size === 2) {
+          const next = pinchInfo();
+          callbacks.pinch(next.distance / pinch.distance, next.center);
+        } else if (pointers.size === 1) {
+          const dx = x - origin.x, dy = y - origin.y;
+          if (phase === 'pending' && Math.hypot(dx, dy) > 8) {
+            stopTimer(); phase = Math.abs(dx) > Math.abs(dy) ? 'pan-x' : 'pan-y';
+            callbacks.panStart();
+          }
+          if (phase === 'inspect') callbacks.inspect(x, y);
+          else if (phase === 'pan-x' || phase === 'pan-y') callbacks.pan(dx, dy, phase === 'pan-x');
+        }
+      },
+      up(id) {
+        if (!pointers.delete(id)) return;
+        stopTimer(); callbacks.release();
+        phase = pointers.size ? 'blocked' : 'idle';
+      },
+      reset() { stopTimer(); pointers.clear(); phase = 'idle'; callbacks.release(); }
+    };
+  }
+
+  function voltageSample(bins, time, end, binMs) {
+    if (!bins.length) return null;
+    let lo = 0, hi = bins.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (bins[mid][0] <= time) lo = mid + 1; else hi = mid; }
+    const index = Math.max(0, lo - 1), bin = bins[index];
+    return { index, start: bin[0], end: Math.min(end, bins[index + 1]?.[0] ?? bin[0] + binMs),
+      value: bin[3], min: bin[1], max: bin[2], sampledAt: Number.isFinite(bin[4]) ? bin[4] : null };
+  }
+
+  function voltagePeak(bins, time, end, binMs, requestedValue) {
+    const sample = voltageSample(bins, time, end, binMs);
+    if (!sample) return null;
+    const bin = bins[sample.index];
+    const candidates = [[sample.value, sample.sampledAt], [sample.min, bin[5]], [sample.max, bin[6]]];
+    const [value, stamp] = candidates.reduce((a, b) => Math.abs(a[0] - requestedValue) <= Math.abs(b[0] - requestedValue) ? a : b);
+    return { ...sample, value, sampledAt: Number.isFinite(stamp) ? stamp : null };
+  }
+
+  return { mediaOrder, isDoubleTap, createPlaybackState, batteryLevel, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, voltageChartWidth, voltageZoom, createVoltageGesture, voltageSample, voltagePeak, TRIP_GAP_MS, TRIP_BIN_MS };
 });

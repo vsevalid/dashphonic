@@ -320,12 +320,17 @@
     }
 
     #voltSheet { overflow-y: auto; touch-action: pan-y; }
-    .volt-now { display: flex; align-items: baseline; gap: 12px; margin-top: 16px; }
-    .volt-now-num { font-size: 40px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+    .volt-now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 16px; }
+    .volt-now-num { flex: 0 0 auto; white-space: nowrap; font-size: 40px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
     .volt-now-num.warn { color: #ef4444; }
     .volt-state { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
     .volt-chart { margin: 20px 0 0; }
     .volt-chart svg { display: block; width: 100%; height: 168px; overflow: visible; }
+    .volt-chart-scroll { overflow-x: auto; overscroll-behavior-x: contain; touch-action: none; scrollbar-width: thin; scrollbar-color: var(--text-secondary) transparent; cursor: pointer; user-select: none; }
+    .volt-chart-scroll:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 4px; }
+    .volt-chart-track { position: relative; }
+    .volt-chart-track svg { position: sticky; left: 0; overflow: hidden; }
+    .volt-now.inspecting .volt-state { font-variant-numeric: tabular-nums; }
     .volt-axis {
       display: flex;
       justify-content: space-between;
@@ -560,7 +565,7 @@
     .lyrics-head-artist { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--text-secondary); margin-top: 2px; }
     .lyrics-view { position: relative; flex: 1 1 0; min-height: 120px; overflow: hidden; mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 72%, transparent); }
     .lyrics-lines { padding-top: 8px; transition: transform .7s cubic-bezier(.22,.9,.24,1); }
-    .lyric-line { color: var(--text-primary); opacity: .26; font-size: 25px; line-height: 1.22; font-weight: 700; letter-spacing: -.012em; margin: 0 0 18px; transform: scale(.94); transform-origin: left center; transition: opacity .45s ease, transform .6s cubic-bezier(.22,.9,.24,1); overflow-wrap: anywhere; }
+    .lyric-line { color: var(--text-primary); opacity: .26; font-size: 25px; line-height: 1.22; font-weight: 700; letter-spacing: -.012em; margin: 0 0 18px; transform: scale(.94); transform-origin: left center; transition: transform .6s cubic-bezier(.22,.9,.24,1); overflow-wrap: anywhere; }
     .lyric-line.past { opacity: .16; }
     .lyric-line.active { opacity: 1; transform: none; }
     .lyric-dots { display: flex; gap: 7px; height: 30px; align-items: center; }
@@ -839,7 +844,7 @@
             M83
           </p>
           <button id="lyricsIndicator" class="lyrics-indicator hidden" aria-label="Показать текст песни"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M18 13v6.5"/><circle cx="16" cy="19.5" r="2"/></svg></button>
-          <span id="offlineIndicator" class="offline-indicator hidden" role="img" aria-label="Нет интернета: обложки и тексты песен не загружаются"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="m2 2 20 20"/><path d="M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.19"/><path d="M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 10 5.07"/></svg></span>
+          <span id="offlineIndicator" class="offline-indicator hidden" role="img" aria-label="Нет интернета: доступны сохранённые обложки и тексты"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="m2 2 20 20"/><path d="M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.19"/><path d="M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 10 5.07"/></svg></span>
           </div>
           </div>
           <div id="lyricsView" class="lyrics-view hidden" aria-live="off"><div id="lyricsLines" class="lyrics-lines"></div></div>
@@ -965,8 +970,10 @@
             <span id="voltState" class="volt-state"></span>
           </div>
           <figure id="voltChartBox" class="volt-chart">
-            <svg id="voltChart" role="img" aria-label="График напряжения за поездку"></svg>
-            <figcaption class="volt-axis"><span id="voltFrom"></span><span>сейчас</span></figcaption>
+            <div id="voltChartScroll" class="volt-chart-scroll" role="slider" tabindex="0" aria-label="Время на графике напряжения" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-keyshortcuts="ArrowLeft ArrowRight Home End + - 0">
+              <div id="voltChartTrack" class="volt-chart-track"><svg id="voltChart" aria-hidden="true"></svg></div>
+            </div>
+            <figcaption class="volt-axis"><span id="voltFrom"></span><span id="voltTo"></span></figcaption>
           </figure>
           <p id="voltEmpty" class="volt-empty hidden">График появится через пару минут поездки, когда прошивка пришлёт несколько значений.</p>
           <dl class="volt-stats">
@@ -1000,6 +1007,7 @@
             <h3>Музыка</h3>
             <button id="btnArtwork" class="setting-row" role="switch" aria-checked="true"><span>Обложки</span><span class="switch" aria-hidden="true"></span></button>
             <button id="btnLyrics" class="setting-row" role="switch" aria-checked="true"><span>Текст песни</span><span class="switch" aria-hidden="true"></span></button>
+            <button id="btnReversePause" class="setting-row" role="switch" aria-checked="false"><span>Пауза при заднем ходе</span><span class="switch" aria-hidden="true"></span></button>
             <h3>Шрифты</h3>
             <button id="btnMainFont" class="setting-row" aria-haspopup="dialog" aria-controls="fontSheet"><span>Основной шрифт</span><span id="mainFontValue"></span></button>
             <button id="btnMonoFont" class="setting-row" aria-haspopup="dialog" aria-controls="fontSheet"><span>Шрифт таймингов</span><span id="monoFontValue"></span></button>
@@ -1022,6 +1030,9 @@
               <label class="setting-note" for="inputTestArtist">Исполнитель</label>
               <input id="inputTestArtist" type="text" value="The Weeknd" placeholder="Исполнитель">
               <button id="btnApplyTestTrack" class="setting-row">Обновить трек</button>
+              <label class="setting-note" for="inputTestTrip">Длительность поездки, мин</label>
+              <input id="inputTestTrip" type="number" min="1" max="1440" value="47" inputmode="numeric">
+              <button id="btnApplyTestTrip" class="setting-row">Показать поездку</button>
             </div>
           </div>
         </div>
@@ -1544,18 +1555,22 @@
       const bins = trip.bins;
       const b = bins[bins.length - 1];
       if (b && trip.bins === bins && now - b[0] < trip.binMs) {
+        if (v < b[1]) b[5] = now;
+        if (v > b[2]) b[6] = now;
         b[1] = Math.min(b[1], v);
         b[2] = Math.max(b[2], v);
         b[3] = v;
+        b[4] = now;
       } else {
-        trip.bins.push([now, v, v, v]);
+        trip.bins.push([now, v, v, v, now, now, now]);
       }
       if (trip.bins.length > TRIP_BINS_MAX) {
         const merged = [];
         for (let i = 0; i < trip.bins.length; i += 2) {
           const a = trip.bins[i];
           const c = trip.bins[i + 1];
-          merged.push(c ? [a[0], Math.min(a[1], c[1]), Math.max(a[2], c[2]), c[3]] : a);
+          merged.push(c ? [a[0], Math.min(a[1], c[1]), Math.max(a[2], c[2]), c[3], c[4] ?? null,
+            (a[1] <= c[1] ? a[5] : c[5]) ?? null, (a[2] >= c[2] ? a[6] : c[6]) ?? null] : a);
         }
         trip.bins = merged;
         trip.binMs *= 2;
@@ -1581,6 +1596,14 @@
     const elVoltMax = document.getElementById("voltMax");
     const elVoltTrip = document.getElementById("voltTrip");
     const elVoltNote = document.getElementById("voltNote");
+    const elVoltScroll = document.getElementById("voltChartScroll");
+    const elVoltTrack = document.getElementById("voltChartTrack");
+    let inspectedVolt = null;
+    let chartWindowMs = 3600000;
+    let voltFollowLatest = true;
+    let chartTripStart = null;
+    let chartEnd = 0, chartWidth = 0, chartViewport = 0, chartSpan = 60000;
+    let chartLow = 11, chartHigh = 15;
     let voltSheetOpen = false;
 
     function voltStateText(v) {
@@ -1602,16 +1625,41 @@
       return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     }
 
+    function formatSampleTime(t) {
+      return new Intl.DateTimeFormat(lang === "en" ? "en-GB" : "ru-RU", {
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      }).format(new Date(t));
+    }
+
     // Ступенчатая линия: прошивка может слать напряжение только при изменении,
     // и значение держится до следующего, а не плавно перетекает в него
     function drawVoltChart(now) {
+      const offsetMs = chartWidth ? elVoltScroll.scrollLeft / chartWidth * chartSpan : 0;
+      if (chartTripStart !== trip.start) {
+        chartGesture.reset(); chartWindowMs = 3600000; voltFollowLatest = true; chartTripStart = trip.start;
+      }
+      chartEnd = now;
+      chartSpan = Math.max(now - trip.start, 60000);
+      chartViewport = elVoltScroll.clientWidth || 300;
+      chartWidth = PanelLogic.voltageChartWidth(chartViewport, trip.start, now, chartWindowMs);
+      elVoltTrack.style.width = `${chartWidth}px`;
+      elVoltChart.style.width = `${chartViewport}px`;
+      elVoltChart.setAttribute("viewBox", `0 0 ${chartViewport} 168`);
+      elVoltScroll.setAttribute("aria-valuemax", String(trip.bins.length - 1));
+      elVoltScroll.scrollLeft = voltFollowLatest ? chartWidth : offsetMs / chartSpan * chartWidth;
+      paintVoltChart();
+    }
+
+    function paintVoltChart() {
+      if (!chartWidth) return;
       const bins = trip.bins;
-      const w = elVoltChart.clientWidth || 300;
+      const w = chartViewport;
       const h = 168;
       let lo = Math.min(11, ...bins.map((b) => b[1] - 0.3));
       let hi = Math.max(15, ...bins.map((b) => b[2] + 0.3));
-      const t0 = trip.start;
-      const span = Math.max(now - t0, 60000);
+      chartLow = lo; chartHigh = hi;
+      const t0 = trip.start + elVoltScroll.scrollLeft / chartWidth * chartSpan;
+      const span = chartSpan * chartViewport / chartWidth;
       const x = (t) => ((t - t0) / span) * w;
       const y = (v) => h - ((v - lo) / (hi - lo)) * h;
       const f = (n) => n.toFixed(1);
@@ -1627,26 +1675,121 @@
       const warnDots = [];
       bins.forEach((b, i) => {
         const bx = x(b[0]);
-        const nx = i + 1 < bins.length ? x(bins[i + 1][0]) : x(now);
+        const nx = i + 1 < bins.length ? x(bins[i + 1][0]) : x(chartEnd);
+        if (nx < 0 || bx > w) return;
         band += `<rect x="${f(bx)}" y="${f(y(b[2]))}" width="${f(Math.max(nx - bx, 1.5))}" height="${f(Math.max(y(b[1]) - y(b[2]), 0))}"/>`;
-        line += i === 0 ? `M${f(bx)} ${f(y(b[3]))}` : `V${f(y(b[3]))}`;
+        line += !line ? `M${f(bx)} ${f(y(b[3]))}` : `V${f(y(b[3]))}`;
         line += `H${f(nx)}`;
-        if (b[1] < VOLT_LOW) warnDots.push([bx, y(b[1])]);
-        else if (b[2] > VOLT_HIGH) warnDots.push([bx, y(b[2])]);
+        if (b[1] < VOLT_LOW) warnDots.push([x(b[5] ?? b[0]), y(b[1])]);
+        else if (b[2] > VOLT_HIGH) warnDots.push([x(b[6] ?? b[0]), y(b[2])]);
       });
       svg += `<g fill="var(--text-primary)" opacity="0.14">${band}</g>`;
       svg += `<path d="${line}" fill="none" stroke="var(--text-primary)" stroke-width="2" stroke-linejoin="round"/>`;
       warnDots.forEach(([dx, dy]) => { svg += `<circle cx="${f(dx)}" cy="${f(dy)}" r="3.5" fill="#ef4444"/>`; });
-      elVoltChart.setAttribute("viewBox", `0 0 ${w} ${h}`);
+      if (inspectedVolt) {
+        const cx = x(inspectedVolt.time), cy = y(inspectedVolt.value);
+        svg += `<line x1="${f(cx)}" x2="${f(cx)}" y1="0" y2="168" stroke="var(--text-secondary)" stroke-opacity="0.5"/><circle cx="${f(cx)}" cy="${f(cy)}" r="3" fill="var(--text-primary)"/>`;
+      }
       elVoltChart.innerHTML = svg;
+      setText(elVoltFrom, `${lang === "en" ? "from" : "с"} ${formatHM(t0)}`);
+      setText(document.getElementById("voltTo"), voltFollowLatest ? (lang === "en" ? "now" : "сейчас") : formatHM(t0 + span));
     }
 
-    function renderVoltSheet() {
-      syncTripClock();
-      const now = Date.now();
+    function inspectVoltAt(clientX, clientY) {
+      const rect = elVoltChart.getBoundingClientRect();
+      const fraction = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const time = trip.start + (elVoltScroll.scrollLeft + fraction * chartViewport) / chartWidth * chartSpan;
+      const targetV = chartHigh - (clientY - rect.top) / rect.height * (chartHigh - chartLow);
+      const sample = PanelLogic.voltagePeak(trip.bins, time, chartEnd, trip.binMs, targetV);
+      if (!sample) return;
+      inspectedVolt = { value: sample.value, time: sample.sampledAt ?? sample.start,
+        label: sample.sampledAt === null ? `${formatSampleTime(sample.start)}–${formatSampleTime(sample.end)}` : formatSampleTime(sample.sampledAt) };
+      elVoltScroll.setAttribute("aria-valuenow", String(sample.index));
+      renderVoltHeader(); paintVoltChart();
+    }
+
+    function zoomVoltChart(snapshot, ratio, center) {
+      const next = PanelLogic.voltageZoom(snapshot.width, chartViewport, snapshot.scroll, ratio,
+        snapshot.anchor, center, chartViewport * chartSpan / 60000);
+      chartWindowMs = next.width <= chartViewport ? Infinity : chartSpan * chartViewport / next.width;
+      voltFollowLatest = false;
+      drawVoltChart(chartEnd);
+      elVoltScroll.scrollLeft = next.scroll;
+      voltFollowLatest = next.width - chartViewport - next.scroll < 2;
+      paintVoltChart();
+    }
+
+    let panStart = null, pinchStart = null;
+    const chartGesture = PanelLogic.createVoltageGesture({
+      inspect: inspectVoltAt,
+      release() { inspectedVolt = null; renderVoltHeader(); paintVoltChart(); },
+      panStart() { panStart = { x: elVoltScroll.scrollLeft, y: elVoltSheet.scrollTop }; },
+      pan(dx, dy, horizontal) {
+        if (horizontal) elVoltScroll.scrollLeft = panStart.x - dx;
+        else elVoltSheet.scrollTop = panStart.y - dy;
+      },
+      pinchStart(center) {
+        const rect = elVoltScroll.getBoundingClientRect();
+        pinchStart = { width: chartWidth, scroll: elVoltScroll.scrollLeft, anchor: center - rect.left, left: rect.left };
+      },
+      pinch(ratio, center) { zoomVoltChart(pinchStart, ratio, center - pinchStart.left); }
+    });
+    elVoltScroll.addEventListener("pointerdown", e => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      elVoltScroll.setPointerCapture(e.pointerId);
+      chartGesture.down(e.pointerId, e.clientX, e.clientY);
+    });
+    elVoltScroll.addEventListener("pointermove", e => chartGesture.move(e.pointerId, e.clientX, e.clientY));
+    elVoltScroll.addEventListener("pointerup", e => chartGesture.up(e.pointerId));
+    elVoltScroll.addEventListener("pointercancel", () => chartGesture.reset());
+    elVoltScroll.addEventListener("lostpointercapture", e => chartGesture.up(e.pointerId));
+    elVoltScroll.addEventListener("contextmenu", e => e.preventDefault());
+    elVoltScroll.addEventListener("scroll", () => {
+      voltFollowLatest = elVoltScroll.scrollWidth - elVoltScroll.clientWidth - elVoltScroll.scrollLeft < 2;
+      paintVoltChart();
+    }, { passive: true });
+    elVoltScroll.addEventListener("wheel", e => {
+      if (!e.ctrlKey) return;
+      e.preventDefault(); chartGesture.reset();
+      const rect = elVoltChart.getBoundingClientRect();
+      const anchor = e.clientX - rect.left;
+      zoomVoltChart({ width: chartWidth, scroll: elVoltScroll.scrollLeft, anchor }, Math.exp(-e.deltaY * .01), anchor);
+    }, { passive: false });
+    elVoltScroll.addEventListener("keydown", e => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End", "+", "=", "-", "0"].includes(e.key) || !trip.bins.length) return;
+      e.preventDefault();
+      if (["+", "=", "-", "0"].includes(e.key)) {
+        chartGesture.reset();
+        if (e.key === "0") { chartWindowMs = 3600000; voltFollowLatest = true; drawVoltChart(chartEnd); }
+        else zoomVoltChart({ width: chartWidth, scroll: elVoltScroll.scrollLeft, anchor: chartViewport / 2 }, e.key === "-" ? .75 : 4 / 3, chartViewport / 2);
+        return;
+      }
+      const selected = Number(elVoltScroll.getAttribute("aria-valuenow"));
+      const index = e.key === "Home" ? 0 : e.key === "End" ? trip.bins.length - 1 : Math.max(0, Math.min(trip.bins.length - 1, selected + (e.key === "ArrowLeft" ? -1 : 1)));
+      const bin = trip.bins[index];
+      elVoltScroll.setAttribute("aria-valuenow", String(index));
+      inspectedVolt = { value: bin[3], time: bin[4] ?? bin[0], label: formatSampleTime(bin[4] ?? bin[0]) };
+      elVoltScroll.scrollLeft = (inspectedVolt.time - trip.start) / chartSpan * chartWidth - chartViewport / 2;
+      renderVoltHeader(); paintVoltChart();
+    });
+    elVoltScroll.addEventListener("keyup", e => {
+      if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) { inspectedVolt = null; renderVoltHeader(); paintVoltChart(); }
+    });
+    elVoltScroll.addEventListener("blur", () => chartGesture.reset());
+    window.addEventListener("blur", () => chartGesture.reset());
+    document.addEventListener("visibilitychange", () => { if (document.hidden) chartGesture.reset(); });
+    window.addEventListener("resize", () => { if (voltSheetOpen) renderVoltSheet(); });
+
+    function renderVoltHeader() {
       const stale = voltStale();
-      const bins = trip.bins;
-      if (lastVolt === null) {
+      elVoltNow.classList.remove("warn", "stale-value");
+      elVoltNow.parentElement.classList.toggle("inspecting", inspectedVolt !== null);
+      if (inspectedVolt) {
+        setText(elVoltNow, `${inspectedVolt.value.toFixed(1)} V`);
+        setText(elVoltState, inspectedVolt.label);
+        elVoltNow.classList.toggle("warn", inspectedVolt.value < VOLT_LOW || inspectedVolt.value > VOLT_HIGH);
+        elVoltNow.classList.remove("stale-value");
+      } else if (lastVolt === null) {
         setText(elVoltNow, "–");
         setText(elVoltState, "Нет данных от прошивки");
       } else {
@@ -1655,12 +1798,19 @@
         elVoltNow.classList.toggle("stale-value", stale);
         setText(elVoltState, stale ? "Нет свежих данных" : voltStateText(lastVolt));
       }
+      elVoltScroll.setAttribute("aria-valuetext", `${elVoltNow.textContent}, ${elVoltState.textContent}`);
+    }
+
+    function renderVoltSheet() {
+      syncTripClock();
+      const now = Date.now();
+      const bins = trip.bins;
+      renderVoltHeader();
       const enough = bins.length >= 2;
       elVoltChartBox.classList.toggle("hidden", !enough);
       elVoltEmpty.classList.toggle("hidden", enough);
       if (enough) {
         drawVoltChart(now);
-        setText(elVoltFrom, `${lang === "en" ? "from" : "с"} ${formatHM(trip.start)}`);
       }
       const mins = bins.map((b) => b[1]);
       const maxs = bins.map((b) => b[2]);
@@ -1680,12 +1830,14 @@
 
     function openVoltSheet() {
       voltSheetOpen = true;
+      voltFollowLatest = true;
       renderVoltSheet();
       elVoltSheet.classList.add("open");
       elVoltSheet.setAttribute("aria-hidden", "false");
       document.getElementById("btnCloseVolt").focus();
     }
     function closeVoltSheet() {
+      chartGesture.reset();
       voltSheetOpen = false;
       elVoltSheet.classList.remove("open");
       elVoltSheet.setAttribute("aria-hidden", "true");
@@ -1896,16 +2048,18 @@
     const lyricsLines = document.getElementById("lyricsLines");
     const lyricsIndicator = document.getElementById("lyricsIndicator");
 
-    // Без сети обложки и тексты не придут: значок объясняет, почему их нет. Показывается только тем,
-    // у кого поиск обложек или текстов включён, и только для трека с телефона.
+    // Cached media remains usable offline; the indicator only explains missing content.
     function renderOffline() {
       // вызывается и из renderPlayer до объявления констант ниже, поэтому элементы берутся здесь
       const offlineIndicator = document.getElementById("offlineIndicator");
       const lyricsIndicator = document.getElementById("lyricsIndicator");
-      const show = !navigator.onLine && !zenEnabled && (artworkEnabled || lyricsEnabled) && !isRadio() && state.phoneConnected &&
+      const hasArt = document.getElementById("coverImage").getAttribute("src");
+      const hasLyrics = document.getElementById("lyricsLines").children.length > 0;
+      const missing = (artworkEnabled && !hasArt) || (lyricsEnabled && !hasLyrics);
+      const show = !navigator.onLine && !zenEnabled && missing && !isRadio() && state.phoneConnected &&
         lyricsIndicator.classList.contains("hidden");
       offlineIndicator.classList.toggle("hidden", !show);
-      offlineIndicator.setAttribute("aria-label", lang === "en" ? "No internet: artwork and lyrics can't load" : "Нет интернета: обложки и тексты песен не загружаются");
+      offlineIndicator.setAttribute("aria-label", lang === "en" ? "Offline: only saved artwork and lyrics are available" : "Нет интернета: доступны сохранённые обложки и тексты");
     }
     window.addEventListener("offline", renderOffline);
     window.addEventListener("online", () => { renderOffline(); scheduleMedia(true); });
@@ -2254,7 +2408,7 @@
       const track = demoTracks[state.trackIndex];
       const title = (track.title || "").trim(), artist = lookupArtist(track.artist);
       // длительность в подпись не входит: она приходит отдельным сообщением и не должна перезапускать поиск
-      const signature = JSON.stringify([title, artist, isRadio(), state.phoneConnected, artworkEnabled, lyricsEnabled, zenEnabled]);
+      const signature = JSON.stringify([title, artist, Math.round(track.duration || 0), isRadio(), state.phoneConnected, artworkEnabled, lyricsEnabled, zenEnabled]);
       if (!force && signature === mediaSignature) return;
       mediaSignature = signature;
       const id = ++mediaRequestId;
@@ -2491,6 +2645,19 @@
       });
     }
 
+    let reversePauseEnabled = !inApp && readSetting("reversePause", "false") === "true";
+    const btnReversePause = document.getElementById("btnReversePause");
+    function renderReversePause(enabled) {
+      reversePauseEnabled = enabled;
+      btnReversePause.setAttribute("aria-checked", String(enabled));
+    }
+    renderReversePause(reversePauseEnabled);
+    btnReversePause.addEventListener("click", () => {
+      renderReversePause(!reversePauseEnabled);
+      if (!inApp) writeSetting("reversePause", String(reversePauseEnabled));
+      sendFytCommand("REVERSE_PAUSE", reversePauseEnabled ? "1" : "0");
+    });
+
     // Прошивка присылает ID3 только при изменении: если телефон переподключился и продолжил тот же трек,
     // название само не придёт. Тогда просим приложение перезапросить у прошивки текущие значения.
     const TRACK_REFRESH_INTERVAL_MS = 5000;
@@ -2556,6 +2723,7 @@
       if ("btDevice" in p) addBtDevice(p.btDevice);
       if ("btDiscoverEnd" in p) setDiscovering(false);
       if ("autoResume" in p) renderAutoResume(p.autoResume);
+      if ("reversePause" in p) renderReversePause(p.reversePause);
       if ("fyt" in p) {
         fresh.fyt = p.fyt;
         // после переподключения прошивка пришлёт текущие значения заново; до этого старые считаются устаревшими
@@ -3509,6 +3677,9 @@
         "Экран":"Display", "Шрифты":"Fonts", "Основной шрифт":"Main font", "Шрифт таймингов":"Timing font", "Тема":"Theme", "Ночной режим":"Night mode", "По времени":"By time", "По фарам":"Headlights",
         "С":"From", "До":"To", "Начало ночного режима":"Night mode start", "Конец ночного режима":"Night mode end",
         "Zen-режим":"Zen mode", "Музыка":"Music", "Обложки":"Album art", "Текст песни":"Lyrics", "Показать текст песни":"Show lyrics", "Есть текст песни":"Lyrics available", "Общие":"General", "Погода":"Weather", "Язык":"Language",
+        "Пауза при заднем ходе":"Pause in reverse",
+        "Время на графике напряжения":"Time on the voltage chart",
+        "Длительность поездки, мин":"Trip duration, min", "Показать поездку":"Preview trip",
         "Местоположение":"Location", "Для погоды":"For weather", "Или выберите город":"Or choose a city", "Использовать геолокацию":"Use current location", "Геолокация":"Use location", "Указать город":"Enter a city", "Источник:":"Source:", "Текущее местоположение":"Current location", "По текущему местоположению":"Use current location", "Разрешить геолокацию":"Allow location access", "Или укажите город":"Or enter a city", "Название города":"City name", "Например, Казань…":"For example, Kazan…",
         "Open-Meteo использует местоположение и интернет.":"Open-Meteo uses your location and internet connection.",
         "Предпросмотр":"Preview", "Пропустить":"Skip", "Далее":"Next", "Приложение":"App", "Проверять обновления":"Check for updates automatically", "Как пользоваться":"How to use", "Название трека":"Track title", "Исполнитель":"Artist", "Обновить трек":"Update track",
@@ -3624,7 +3795,7 @@
       kickProgress();
 
     }, 1000);
-    // 10 кадров в секунду хватает и полосе, и строкам текста; на паузе цикл стоит, его будит renderPlayer
+    // Lyrics follow display frames; the progress-only view uses a slower timer.
     function kickProgress() {
       if (progressTimer) return;
       progressTimer = -1;
@@ -3646,7 +3817,12 @@
         }
       }
       if (lyricRows.length) renderLyrics();
-      if (playing) progressTimer = setTimeout(() => requestAnimationFrame(animateProgress), 100);
+      if (playing) {
+        if (lyricRows.length && !lyricsView.classList.contains("hidden")) {
+          progressTimer = -1;
+          requestAnimationFrame(animateProgress);
+        } else progressTimer = setTimeout(() => requestAnimationFrame(animateProgress), 100);
+      }
     }
     kickProgress();
     document.addEventListener("keydown", (e) => {
@@ -3660,16 +3836,30 @@
       else if (sheetOpen) closeSheet();
     });
 
-    // Предпросмотр в браузере: поездка 47 минут с просадкой при запуске двигателя
-    if (!inApp) {
-      const start = Date.now() - 47 * 60000;
+    function previewTrip(minutes) {
+      const duration = minutes * 60000;
+      const start = Date.now() - duration;
       trip = newTrip(start);
       trip.activeFrom = start;
-      for (let i = 0; i < 141; i++) {
+      trip.binMs = Math.max(TRIP_BIN_MS, Math.ceil(duration / TRIP_BINS_MAX / TRIP_BIN_MS) * TRIP_BIN_MS);
+      for (let i = 0; i < Math.ceil(duration / trip.binMs); i++) {
         const v = i === 0 ? 12.5 : i === 1 ? 10.4 : i < 20 ? 14.4 - i * 0.02 : 13.9 + Math.sin(i / 7) * 0.12;
-        trip.bins.push([start + i * TRIP_BIN_MS, v, v, v]);
+        const time = start + i * trip.binMs;
+        trip.bins.push([time, v, v, v, time, time, time]);
       }
       window.fytPatch({ carVoltageRaw: 135, outTempRaw: 1000 - 40 });
+    }
+    if (!inApp) {
+      previewTrip(47);
+      document.getElementById("btnApplyTestTrip").addEventListener("click", () => {
+        const input = document.getElementById("inputTestTrip");
+        if (!input.reportValidity()) return;
+        const minutes = Number(input.value);
+        if (!Number.isFinite(minutes) || minutes < 1 || minutes > 1440) return;
+        previewTrip(minutes);
+        showCarPanel();
+        openVoltSheet();
+      });
     }
 
     document.addEventListener("visibilitychange", () => {

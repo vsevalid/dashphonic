@@ -10,16 +10,11 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 class MediaLookup(context: Context, private val deliver: (JSONObject) -> Unit) {
-    private companion object {
-        const val FOUND_TTL = 30L * 24 * 60 * 60 * 1000
-        const val NOT_FOUND_TTL = 3L * 24 * 60 * 60 * 1000
-    }
-
     private val root = File(context.cacheDir, "media-lookup")
+    private val cache = MediaCache(root)
     private val executors = mapOf("art" to Executors.newSingleThreadExecutor(), "lyrics" to Executors.newSingleThreadExecutor())
     private val enabled = mutableMapOf("art" to false, "lyrics" to false)
     private val generations = mutableMapOf("art" to 0, "lyrics" to 0)
@@ -51,21 +46,15 @@ class MediaLookup(context: Context, private val deliver: (JSONObject) -> Unit) {
         }
         executors.getValue(kind).execute {
             if (!valid(kind, generation)) return@execute
-            val key = hash("$kind\n$artist\n$title\n$duration")
             val folder = File(root, kind).apply { mkdirs() }
-            val file = File(folder, key)
-            val age = System.currentTimeMillis() - file.lastModified()
-            var result = if (file.isFile) file.readText() else null
-            // «не найдено» хранится пустым файлом и живёт недолго: в базах со временем появляются новые релизы
-            if (result != null && age !in 0..(if (result.isEmpty()) NOT_FOUND_TTL else FOUND_TTL)) result = null
-            if (result != null && result.isNotEmpty()) file.setLastModified(System.currentTimeMillis())
+            var result = cache.get(kind, artist, title, duration, System.currentTimeMillis())
             if (result == null) {
                 // null — сеть не ответила, такой исход не кэшируем; "" — источники ответили, что ничего нет
                 result = try {
                     if (kind == "art") findArt(title, artist, duration, generation) else findLyrics(title, artist, duration, generation)
                 } catch (_: Exception) { null }
                 if (result != null && valid(kind, generation)) {
-                    file.writeText(result)
+                    cache.put(kind, artist, title, duration, result)
                     trim(folder, if (kind == "art") 8L * 1024 * 1024 else 2L * 1024 * 1024)
                 }
             }
@@ -192,7 +181,6 @@ class MediaLookup(context: Context, private val deliver: (JSONObject) -> Unit) {
         }
     }
 
-    private fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun encode(value: String) = URLEncoder.encode(value, "UTF-8")
 
     // Телефон и базы по-разному пишут одно и то же: «Song (Remastered 2011)», «Artist feat. X», «Artist, X & Y»
