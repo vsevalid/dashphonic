@@ -14,7 +14,12 @@ class FytBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context?, intent: Intent?) {
         if (intent == null) return
-        val extras = intent.extras ?: return
+        // приёмник открыт для всех: чужой intent с нераспаковываемым Parcelable в extras не должен ронять процесс
+        val extras = try {
+            intent.extras?.also { it.size() } ?: return
+        } catch (e: RuntimeException) {
+            return
+        }
 
         val title = extras.getString("title")
             ?: extras.getString("track")

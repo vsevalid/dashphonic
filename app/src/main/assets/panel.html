@@ -2346,7 +2346,7 @@
           coverPresent = true;
           coverImage.src = value;
           coverMiniImage.src = value;
-          coverWash.style.backgroundImage = `url("${value}")`;
+          coverWash.style.backgroundImage = `url(${JSON.stringify(value)})`;
           coverWash.classList.add("visible");
           updateMediaView();
         };
@@ -2407,7 +2407,8 @@
     function scheduleMedia(force = false) {
       const track = demoTracks[state.trackIndex];
       const title = (track.title || "").trim(), artist = lookupArtist(track.artist);
-      // длительность в подпись не входит: она приходит отдельным сообщением и не должна перезапускать поиск
+      // длительность в подписи: когда она приходит позже названия, текст ищется заново уже с ней,
+      // иначе кэш и поиск не отличат версию трека другой длины
       const signature = JSON.stringify([title, artist, Math.round(track.duration || 0), isRadio(), state.phoneConnected, artworkEnabled, lyricsEnabled, zenEnabled]);
       if (!force && signature === mediaSignature) return;
       mediaSignature = signature;
@@ -3119,6 +3120,8 @@
       if (s === "available") note = releaseNotes(update.notes);
       else if (s === "permission") note = tr("Разрешите Dashphonic устанавливать приложения и вернитесь назад: установка продолжится сама.", "Allow Dashphonic to install apps, then go back. The update continues on its own.");
       else if (s === "error" && update.reason === "signature") note = tr("Файл подписан другим ключом. Удалите приложение и поставьте APK со страницы релизов.", "The file is signed with a different key. Uninstall the app and install the APK from the releases page.");
+      else if (s === "error" && update.reason === "version") note = tr("В релизе лежит сборка не новее установленной. Сообщите об этом на странице проекта.", "The release contains a build that is not newer than the installed one. Please report it on the project page.");
+      else if (s === "error" && update.reason === "installer") note = tr("На магнитоле нет установщика приложений. Скачайте APK со страницы релизов и поставьте его вручную.", "This head unit has no app installer. Download the APK from the releases page and install it manually.");
       else if (s === "error") note = tr("Не удалось проверить или загрузить обновление. Проверьте интернет и попробуйте снова.", "Could not check or download the update. Check your connection and try again.");
       elUpdateNote.textContent = note;
       elUpdateNote.classList.toggle("hidden", !note);
@@ -3223,7 +3226,8 @@
       elDeviceLabel.textContent = on ? connectedPhoneLabel() : (lang === "en" ? "Connect phone" : "Подключить телефон");
       renderBattery();
       renderSwitchBt();
-      if (on && connecting && !connecting.failed) {
+      // неудача снимается, когда подключился любой телефон: целевой позже таймаута или другой вместо него
+      if (on && connecting && (!connecting.failed || state.phoneName)) {
         clearTimeout(connecting.timer);
         connecting = null;
       }
@@ -3620,7 +3624,8 @@
     elBtnViewCar.addEventListener("click", showCarPanel);
     elBtnViewSetup.addEventListener("click", showSetupPanel);
     elClockHM.addEventListener("click", showSetupPanel);
-    document.getElementById("btnBackToCar").addEventListener("click", () => { showCarPanel(); elClockHM.focus(); });
+    function closeSettings() { showCarPanel(); elClockHM.focus(); }
+    document.getElementById("btnBackToCar").addEventListener("click", closeSettings);
     refreshWeather();
     try {
       if (sessionStorage.getItem("openSettingsAfterLanguage") === "1") {
@@ -3825,16 +3830,93 @@
       }
     }
     kickProgress();
+    // Вложенные листы лежат поверх родительских, поэтому проверяются первыми
+    function topSheet() {
+      if (btRenameTarget) return { el: elBtRenameSheet, close: closeBtRename };
+      if (fontSheetOpen) return { el: elFontSheet, close: closeFontSheet };
+      if (weatherSheetOpen) return { el: elWeatherSheet, close: closeWeatherSheet };
+      if (settingsOpen) return { el: elSetupView, close: closeSettings };
+      if (voltSheetOpen) return { el: elVoltSheet, close: closeVoltSheet };
+      if (sheetOpen) return { el: elSheet, close: closeSheet };
+      return null;
+    }
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       if (onboardingOpen) closeOnboarding();
-      else if (btRenameTarget) closeBtRename();
-      else if (fontSheetOpen) closeFontSheet();
-      else if (weatherSheetOpen) closeWeatherSheet();
-      else if (settingsOpen) showCarPanel();
-      else if (voltSheetOpen) closeVoltSheet();
-      else if (sheetOpen) closeSheet();
+      else topSheet()?.close();
     });
+
+    // --- СВАЙП НАЗАД ---
+    // Лист едет за пальцем и открывает экран под собой. Жест не начинается там, где горизонтальное
+    // движение уже занято: свайп строк сопряжённых устройств, график напряжения, поля ввода.
+    const BACK_SWIPE_EXCLUDED = "#pairedList .bt-item, [role='slider'], input, textarea, select";
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let backSwipe = null, backSwipeTimer = 0, backSwipeClickGuard = false;
+    function clearSheetDrag(sheet) {
+      sheet.style.transition = "none";
+      sheet.style.transform = "";
+      void sheet.offsetWidth;
+      sheet.style.transition = "";
+    }
+    function settleBackSwipe(sheet, commit) {
+      clearTimeout(backSwipeTimer);
+      if (reducedMotion.matches) return clearSheetDrag(sheet);
+      sheet.style.transition = "transform .2s cubic-bezier(0.2, 0, 0, 1), opacity .2s ease";
+      sheet.style.transform = commit ? `translateX(${sheet.clientWidth}px)` : "";
+      backSwipeTimer = setTimeout(() => clearSheetDrag(sheet), 220);
+    }
+    function finishBackSwipe(commit) {
+      const gesture = backSwipe;
+      backSwipe = null;
+      if (!gesture?.active) return;
+      // мышь в предпросмотре отпускается над той же строкой, с которой начался жест, и кликнула бы её
+      backSwipeClickGuard = true;
+      setTimeout(() => { backSwipeClickGuard = false; }, 100);
+      commit = commit && topSheet()?.el === gesture.sheet;
+      settleBackSwipe(gesture.sheet, commit);
+      if (commit) gesture.close();
+    }
+    document.addEventListener("pointerdown", e => {
+      backSwipeClickGuard = false;
+      // второй палец отменяет жест; новое первичное касание при живом жесте значит, что pointerup потерялся
+      if (backSwipe) finishBackSwipe(false);
+      if (!e.isPrimary || e.button !== 0 || onboardingOpen) return;
+      const top = topSheet();
+      const target = e.target instanceof Element ? e.target : e.target.parentElement;
+      if (!top || !target || !top.el.contains(target) || target.closest(BACK_SWIPE_EXCLUDED)) return;
+      backSwipe = { sheet: top.el, close: top.close, id: e.pointerId, x: e.clientX, y: e.clientY, active: false,
+        prevX: e.clientX, prevTime: e.timeStamp, lastX: e.clientX, lastTime: e.timeStamp };
+    });
+    window.addEventListener("pointermove", e => {
+      const gesture = backSwipe;
+      if (!gesture || e.pointerId !== gesture.id) return;
+      const dx = e.clientX - gesture.x;
+      if (!gesture.active) {
+        const intent = PanelLogic.backSwipeIntent(dx, e.clientY - gesture.y);
+        if (intent === "cancel") backSwipe = null;
+        if (intent !== "back") return;
+        gesture.active = true;
+        clearTimeout(backSwipeTimer);
+        gesture.sheet.style.transition = "none";
+      }
+      gesture.prevX = gesture.lastX; gesture.prevTime = gesture.lastTime;
+      gesture.lastX = e.clientX; gesture.lastTime = e.timeStamp;
+      gesture.sheet.style.transform = `translateX(${Math.max(0, dx)}px)`;
+    });
+    window.addEventListener("pointerup", e => {
+      const gesture = backSwipe;
+      if (!gesture || e.pointerId !== gesture.id) return;
+      const dt = gesture.lastTime - gesture.prevTime;
+      const velocity = dt > 0 ? (gesture.lastX - gesture.prevX) / dt : 0;
+      finishBackSwipe(PanelLogic.backSwipeCommits(e.clientX - gesture.x, velocity, gesture.sheet.clientWidth));
+    });
+    window.addEventListener("pointercancel", e => { if (backSwipe && e.pointerId === backSwipe.id) finishBackSwipe(false); });
+    document.addEventListener("click", e => {
+      if (!backSwipeClickGuard) return;
+      backSwipeClickGuard = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
 
     function previewTrip(minutes) {
       const duration = minutes * 60000;

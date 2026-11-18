@@ -1,6 +1,7 @@
 package app.sidewave
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -72,6 +73,11 @@ class AppUpdater(private val activity: Activity, private val deliver: (JSONObjec
                     send("error", JSONObject().put("reason", "signature"))
                     return@execute
                 }
+                if (!isNewerBuild(file)) {
+                    file.delete()
+                    send("error", JSONObject().put("reason", "version"))
+                    return@execute
+                }
                 downloaded = file
                 activity.runOnUiThread { launchInstaller(file) }
             } catch (_: Exception) {
@@ -91,16 +97,22 @@ class AppUpdater(private val activity: Activity, private val deliver: (JSONObjec
 
     fun close() = executor.shutdownNow()
 
+    // На урезанных прошивках FYT экрана настроек или установщика может не быть
     private fun launchInstaller(file: File) {
-        if (!activity.packageManager.canRequestPackageInstalls()) {
-            awaitingPermission = true
-            send("permission")
-            activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
-            return
+        try {
+            if (!activity.packageManager.canRequestPackageInstalls()) {
+                awaitingPermission = true
+                send("permission")
+                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+                return
+            }
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", file)
+            send("installing")
+            activity.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        } catch (_: ActivityNotFoundException) {
+            awaitingPermission = false
+            send("error", JSONObject().put("reason", "installer"))
         }
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", file)
-        send("installing")
-        activity.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
     }
 
     private fun download(target: Release, file: File) {
@@ -141,6 +153,13 @@ class AppUpdater(private val activity: Activity, private val deliver: (JSONObjec
 
     // Установщик и так отклонит чужую подпись, но молча; проверка здесь даёт понятную ошибку
     @Suppress("DEPRECATION")
+    // Тег релиза может не совпадать с versionCode внутри APK; установщик тогда отказывает без объяснения
+    private fun isNewerBuild(file: File): Boolean {
+        val pm = activity.packageManager
+        val archive = pm.getPackageArchiveInfo(file.path, 0) ?: return false
+        return archive.longVersionCode > pm.getPackageInfo(activity.packageName, 0).longVersionCode
+    }
+
     private fun isOwnUpdate(file: File): Boolean {
         val pm = activity.packageManager
         // Android 9–10 читает подписи файла APK только при GET_SIGNATURES, без него signingInfo приходит null

@@ -2,6 +2,7 @@ package app.sidewave
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -22,6 +23,7 @@ import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ConsoleMessage
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -92,6 +94,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+                // На магнитоле с малой памятью система убивает рендерер; без обработчика вместе с ним падает приложение
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    Log.w(TAG, "WebView renderer gone, crashed=${detail.didCrash()}")
+                    pageReady = false
+                    // убитый WebView нельзя показывать дальше; destroy() вызовет onDestroy при пересоздании
+                    (view.parent as? android.view.ViewGroup)?.removeView(view)
+                    recreate()
+                    return true
+                }
+
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.e(TAG, "WebView error=${error.errorCode} mainFrame=${request.isForMainFrame}: ${error.description}")
                 }
@@ -127,6 +139,8 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(object {
             @JavascriptInterface
             fun onCommand(cmd: String, value: String) {
+                // вызов с потока JavaBridge мог уже лететь, когда активити закрылась и остановила executors
+                if (isDestroyed) return
                 when (cmd) {
                     "PLAY" -> fytBridge.play()
                     "BT_SOURCE" -> fytBridge.playBt()
@@ -185,7 +199,12 @@ class MainActivity : AppCompatActivity() {
             requestWeather()
         } else if (locationPermissionRequested) {
             awaitingLocationSettings = true
-            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            try {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            } catch (e: ActivityNotFoundException) {
+                awaitingLocationSettings = false
+                weatherError()
+            }
         } else {
             requestWeather()
         }
@@ -350,6 +369,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         FytBroadcastReceiver.activeBridge = null
+        pageReady = false
+        webView.removeJavascriptInterface("FytBridge")
+        webView.destroy()
         fytBridge.unbindFytService()
         cancelWeather()
         weatherExecutor.shutdownNow()

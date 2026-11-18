@@ -145,3 +145,12 @@ test('media loads what is on screen first: lyrics when open or artwork is off, a
   assert.deepEqual(mediaOrder({ artworkEnabled: true, lyricsEnabled: false, lyricsOpen: true }), ['art']);
   assert.deepEqual(mediaOrder({ artworkEnabled: false, lyricsEnabled: false, lyricsOpen: false }), []);
 });
+
+test('a stored trip keeps valid bins and drops malformed ones instead of breaking every redraw', () => {
+  const now = 3600000;
+  const stored = { start: now - 600000, binMs: 20000, activeMs: 600000, activeFrom: null,
+    bins: [[now - 500000, 12.5, 12.4, 12.6], null, [now - 400000, 'x', 1, 2], [now - 300000, 13], [now - 200000, 14.1, 14, 14.2, now - 200000, now - 199000, now - 198000]] };
+  const trip = logic.restoreTrip(stored, now);
+  assert.equal(trip.start, stored.start);
+  assert.deepEqual(trip.bins.map(bin => bin[0]), [now - 500000, now - 200000]);
+});

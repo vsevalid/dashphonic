@@ -254,14 +254,17 @@ class FytIpcBridge(
             remember("sound", updateCode, ints, strs)
             val i0 = ints?.firstOrNull() ?: return
             when (updateCode) {
+                // volume и muted меняются только на главном потоке: туда же идут команды из страницы
                 U_SOUND_VOL -> {
-                    volume = i0
-                    if (i0 > 0) lastAudibleVolume = i0
+                    handler.post {
+                        volume = i0
+                        if (i0 > 0) lastAudibleVolume = i0
+                    }
                     onPatch(JSONObject().put("volume", i0))
                 }
                 U_SOUND_MUTE -> {
-                    muted = i0 != 0
-                    onPatch(JSONObject().put("muted", muted))
+                    handler.post { muted = i0 != 0 }
+                    onPatch(JSONObject().put("muted", i0 != 0))
                 }
             }
         }
@@ -345,7 +348,10 @@ class FytIpcBridge(
                 if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) Log.d(TAG, "Modules main=${mainModule != null} radio=${radioModule != null} bt=${btModule != null} sound=${soundModule != null}")
                 // update=1: сервис сразу присылает текущее значение, не дожидаясь изменения
                 MAIN_CODES.forEach { registrationPoint = "main.$it"; mainModule?.register(mainCallback, it, 1) }
-                MAIN_PROBE_CODES.forEach { registrationPoint = "main.$it"; mainModule?.register(mainProbeCallback, it, 1) }
+                // ~140 синхронных вызовов binder нужны только диагностическим сборкам: в релизе debugState не прочитать
+                if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) {
+                    MAIN_PROBE_CODES.forEach { registrationPoint = "main.$it"; mainModule?.register(mainProbeCallback, it, 1) }
+                }
                 RADIO_CODES.forEach { registrationPoint = "radio.$it"; radioModule?.register(radioCallback, it, 1) }
                 BT_CODES.forEach { registrationPoint = "bt.$it"; btModule?.register(btCallback, it, 1) }
                 BT_LIST_CODES.forEach { registrationPoint = "bt.$it"; btModule?.register(btCallback, it, 0) }
@@ -391,7 +397,7 @@ class FytIpcBridge(
         handler.removeCallbacksAndMessages(null)
         try {
             MAIN_CODES.forEach { mainModule?.unregister(mainCallback, it) }
-            MAIN_PROBE_CODES.forEach { mainModule?.unregister(mainProbeCallback, it) }
+            if (BuildConfig.DEBUG || BuildConfig.DIAGNOSTICS) MAIN_PROBE_CODES.forEach { mainModule?.unregister(mainProbeCallback, it) }
             RADIO_CODES.forEach { radioModule?.unregister(radioCallback, it) }
             (BT_CODES + BT_LIST_CODES).forEach { btModule?.unregister(btCallback, it) }
             SOUND_CODES.forEach { soundModule?.unregister(soundCallback, it) }
@@ -631,7 +637,9 @@ class FytIpcBridge(
         }
     }
 
-    fun setVolume(level: Int) {
+    fun setVolume(level: Int) = handler.post { applyVolume(level) }
+
+    private fun applyVolume(level: Int) {
         if (soundModule == null) {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             am.setStreamVolume(AudioManager.STREAM_MUSIC, level.coerceIn(0, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)), 0)
@@ -642,14 +650,14 @@ class FytIpcBridge(
         soundCmd(level.coerceAtLeast(0))
     }
 
-    fun toggleMute() {
+    fun toggleMute() = handler.post {
         if (soundModule == null) {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
             onPatch(JSONObject().put("muted", am.isStreamMute(AudioManager.STREAM_MUSIC)).put("volume", am.getStreamVolume(AudioManager.STREAM_MUSIC)))
-            return
+            return@post
         }
-        if (!muted && volume == 0) setVolume(lastAudibleVolume) else toggleFirmwareMute()
+        if (!muted && volume == 0) applyVolume(lastAudibleVolume) else toggleFirmwareMute()
     }
 
     // Флаг меняем сразу: жест шлёт громкость чаще, чем прошивка подтверждает mute, и иначе переключили бы его дважды

@@ -45,6 +45,17 @@
     return elapsed >= 0 && elapsed <= 400 && Math.hypot(tap.x - previous.x, tap.y - previous.y) <= 32;
   }
 
+  // Свайп «назад» решается по первым 12 px: вертикальное движение отдаём прокрутке листа,
+  // движение влево не наше, поэтому жест отменяется и больше не перехватывается
+  function backSwipeIntent(dx, dy) {
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return null;
+    return dx > 0 && dx > Math.abs(dy) * 1.5 ? 'back' : 'cancel';
+  }
+
+  function backSwipeCommits(dx, velocity, width) {
+    return dx > Math.min(120, width / 3) || (dx > 40 && velocity > 0.45);
+  }
+
   // Прошивка отдаёт уровень HFP 0–5 (иногда 0–9 или проценты): точного процента из него не получить,
   // поэтому панель показывает только уровень из пяти делений
   function batteryLevel(raw) {
@@ -137,9 +148,11 @@
     return { start, binMs: TRIP_BIN_MS, bins: [], offAt: null, rest: null, charging: null, chargingSeen: false, activeMs: 0, activeFrom: null };
   }
 
+  function validBin(bin) {
+    return Array.isArray(bin) && bin.length >= 4 && bin.slice(0, 4).every(Number.isFinite);
+  }
   function recoverRecentTrip(stored, now) {
-    const recent = stored.bins.filter(bin => Array.isArray(bin) && bin.length >= 4 &&
-      bin.slice(0, 4).every(Number.isFinite) && bin[0] >= now - TRIP_GAP_MS && bin[0] <= now);
+    const recent = stored.bins.filter(bin => validBin(bin) && bin[0] >= now - TRIP_GAP_MS && bin[0] <= now);
     const trip = newTrip(recent.length ? recent[0][0] : now);
     trip.bins = recent.map(bin => bin.slice(0, 7));
     return trip;
@@ -147,7 +160,8 @@
 
   function restoreTrip(stored, now) {
     if (!stored || !Number.isFinite(stored.start) || !Array.isArray(stored.bins) || !Number.isFinite(stored.binMs) || stored.binMs <= 0) return newTrip(now);
-    const trip = { ...stored };
+    // испорченный или старый бин ломал бы каждую отрисовку напряжения до очистки хранилища
+    const trip = { ...stored, bins: stored.bins.filter(validBin) };
     if (trip.start > now + CLOCK_DRIFT_LIMIT_MS || now - trip.start > MAX_TRIP_AGE_MS ||
         (Number.isFinite(trip.activeMs) && trip.activeMs > MAX_TRIP_AGE_MS) ||
         (Number.isFinite(trip.activeFrom) && (trip.activeFrom > now + CLOCK_DRIFT_LIMIT_MS || now - trip.activeFrom > MAX_TRIP_AGE_MS))) return recoverRecentTrip(trip, now);
@@ -270,5 +284,5 @@
     return { ...sample, value, sampledAt: Number.isFinite(stamp) ? stamp : null };
   }
 
-  return { mediaOrder, isDoubleTap, createPlaybackState, batteryLevel, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, voltageChartWidth, voltageZoom, createVoltageGesture, voltageSample, voltagePeak, TRIP_GAP_MS, TRIP_BIN_MS };
+  return { mediaOrder, isDoubleTap, backSwipeIntent, backSwipeCommits, createPlaybackState, batteryLevel, connectedPhoneName, classifyTrackGesture, metadataValue, parseLyrics, lyricIndex, matchesTitle, matchesArtist, searchTitle, newTrip, restoreTrip, updateAcc, reconcileTripClock, tripDuration, voltageChartWidth, voltageZoom, createVoltageGesture, voltageSample, voltagePeak, TRIP_GAP_MS, TRIP_BIN_MS };
 });
